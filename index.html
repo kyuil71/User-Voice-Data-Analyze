@@ -18,7 +18,7 @@ import {
   Lightbulb, 
   Globe, 
   ArrowRight, 
-  Download,
+  Download, 
   BookOpen,
   Home, 
   Copy, 
@@ -29,25 +29,129 @@ import {
 } from 'lucide-react';
 
 // --- Constants & Config ---
+// [절대 변경 금지] 모델명을 gemini-flash-latest로 고정합니다.
 const MODEL_NAME = "gemini-flash-latest"; 
-const SESSION_KEY = "gemini_api_key_ux_hub";
+const SESSION_KEY = "gemini_api_key_ux_hub_integrated";
 
-// --- UI Components (Defined outside to prevent re-mounting/focus loss) ---
-const Header = ({ title, step, setStep, step2Result, selectedCategory, step4Result, copyToClipboard, resetAll }) => {
-  const canGoForward = (step === 2 && step2Result) || (step === 3 && selectedCategory) || (step === 4 && step4Result);
+// --- 5Whys Prompts ---
+const PROMPTS = {
+  ANALYSIS: (perspective) => `You are a Senior Root Cause Analyst.
+Your goal is to perform a rigorous "5Why Analysis" on the user's opinion to find the absolute "Real Cause".
+${perspective === 'auto' 
+  ? "Crucially, carefully analyze the user's opinion and CHOOSE the ONE most critical perspective among ['사용 불편 관점', '기술 진화 관점', '심미적 관점', '비지니스 관점'] that best fits the core problem. You MUST analyze the opinion strictly through the lens of your chosen perspective." 
+  : `Crucially, you MUST analyze the opinion strictly through the lens of: [${perspective}]`}
+For the user's input, derive 3 to 6 distinct 5Why chains.
+Each chain must follow EXACTLY this format for each of the 5 steps:
+Why [N]
+왜 [질문]?
+→ [답변]
+핵심: [요약]
+
+Return ONLY a JSON object: 
+{ 
+  ${perspective === 'auto' ? `"chosenPerspective": "[The perspective you chose among the 4 options]",` : ""}
+  "rootCauses": [ 
+    { 
+      "id": 1, 
+      "chain": [
+        "Why 1\\n왜 [질문]?\\n→ [답변]\\n핵심: [요약]",
+        "Why 2\\n왜 [질문]?\\n→ [답변]\\n핵심: [요약]",
+        "Why 3\\n왜 [질문]?\\n→ [답변]\\n핵심: [요약]",
+        "Why 4\\n왜 [질문]?\\n→ [답변]\\n핵심: [요약]",
+        "Why 5\\n왜 [질문]?\\n→ [답변]\\n핵심: [요약]"
+      ], 
+      "realCause": "[최종적으로 도출된 진짜 원인 - 해당 관점에서의 근본적인 이유]" 
+    } 
+  ] 
+}
+[TONE]: Write in Korean. Be logical, analytical, and professional. Focus purely on the 5Why logic based on the requested perspective.`,
+
+  HYPOTHESIS: (perspective) => `# Role: 전문 UX 전략 컨설턴트 및 맥락 분석가
+
+# Context: 
+도출된 '5Why 진짜 원인'과 선택된 [${perspective}]을 바탕으로, 사용자의 숨겨진 문제를 해결하기 위한 구체적인 확장 가설과 솔루션 방향을 제시합니다.
+반드시 [${perspective}]에 입각하여 혁신적인 아이디어를 도출해야 합니다.
+
+# Analysis Process (3단계):
+아래 제시된 단계별 [사례]와 동일한 텍스트 구조(문제, 원인, 결론, 한계 / 원인 재정의, 인지적 사각지대, 심리적 역지사지 / 인사이트 A, B, C 등)를 명확하게 나누어 작성하세요.
+
+## Step 1. 표면적 원인에 대한 통상적 대처
+- 해당 문제에 대해 업계나 조직이 통상적이고 관습적으로 내놓는 해결책 정리.
+- 제시된 해결책이 실현이 어렵거나, 큰 가치가 없는 이유 제시
+
+## Step 2. 맥락적 원인에 대한 재해석
+- 가장 중요한 "숨겨진 원인 및 근본적 원인을 탐색"
+- 사용자가 특정 경험을 하는 '환경'과 '심리적 전후 관계'를 재구성하여 문제의 본질을 새로운 관점으로 정의.
+
+## Step 3. 맥락적 인사이트 제안
+- 재정의된 문제를 바탕으로 제품의 UX, 디자인, 소재, 구조 전반에 걸친 구체적인 컨셉 가설 수립.
+
+Return ONLY a JSON object containing 1 to 3 distinct hypotheses based on the steps above:
+{ 
+  "hypotheses": [ 
+    { 
+      "id": 1, 
+      "title": "[전체 인사이트의 핵심을 요약하는 타이틀]", 
+      "step1": "[Step 1 내용]", 
+      "step2": "[Step 2 내용]", 
+      "step3": "[Step 3 내용]" 
+    } 
+  ] 
+}
+[TONE]: Write in Korean. Be highly analytical, professional, and insightful.`,
+
+  SUMMARY: `You are a Senior Insight Strategist.
+Synthesize the entire journey: initial opinion -> 5Why analysis (Real Cause) -> final expanded hypothesis.
+[IMPORTANT]: Generate the "content" for each step VERY DETAILED. The amount of text for each content must be AT LEAST TWICE as long as usual. Provide deep strategic explanations and logical grounds.
+
+Return ONLY a JSON object:
+{
+  "finalReport": {
+    "step1": { "title": "분석 대상 가설", "content": "[Summary - very long and detailed]" },
+    "step2": { "title": "5Whys 분석", "content": "[The chosen Real Cause - explain why it is the root in detail]" },
+    "step3": { "title": "확장된 문제 가설", "content": "[Hypothesis synthesis - provide deep context and reasoning]" },
+    "step4": { "title": "전략적 해결 방향", "content": "[Strategic action direction - extensive and actionable guidance]" }
+  }
+}
+[TONE]: Write in Korean. Professional and highly strategic.`
+};
+
+// --- UI Components ---
+const Header = ({ step, setStep, step1Result, step2Result, selectedCategory, rootCauses, deepHypotheses, finalBrief, copyToClipboard, resetAll }) => {
+  const canGoForward = 
+    (step === 1 && step1Result) || 
+    (step === 2 && step2Result) || 
+    (step === 3 && selectedCategory) || 
+    (step === 4 && true) ||
+    (step === 5 && rootCauses?.length > 0) ||
+    (step === 6 && deepHypotheses?.length > 0) ||
+    (step === 7 && finalBrief);
+
+  const canGoBack = step > 0;
+
+  const getDynamicTitle = () => {
+    if (step === 0) return "인증 및 시작";
+    if (step === 2) return "전체 데이터 분석";
+    if (step === 3) return "UX/DESIGN 데이터 분석";
+    if (step === 4) return "5Whys 분석";
+    if (step === 5) return "5Whys 분석 결과";
+    if (step === 6) return "디자인 인사이트 제안";
+    if (step === 7) return "전체 요약 리포트";
+    return "디자인 분석 엔진";
+  };
   
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-md border-b border-slate-200/50 px-4 h-14 flex items-center justify-between max-w-[430px] mx-auto overflow-hidden">
       <div className="flex items-center gap-1 overflow-hidden flex-1">
-        {step > 1 && (
-          <button onClick={() => setStep(prev => prev - 1)} className="p-2 -ml-2 rounded-full hover:bg-slate-100 transition-all flex-shrink-0">
+        {canGoBack && (
+          <button onClick={() => setStep(prev => prev > 0 ? prev - 1 : 0)} className="p-2 -ml-2 rounded-full hover:bg-slate-100 transition-all flex-shrink-0">
             <ChevronLeft className="w-6 h-6 text-slate-500" />
           </button>
         )}
-        <h1 className="font-bold text-[20px] text-slate-900 truncate leading-tight">{title}</h1>
+        <h1 className="font-bold text-[18px] text-slate-900 truncate leading-tight">{getDynamicTitle()}</h1>
       </div>
       <div className="flex items-center gap-1 flex-shrink-0">
-        {canGoForward && (
+        {(canGoForward || (step === 0 && step2Result)) && (
           <button onClick={() => setStep(prev => prev + 1)} className="p-2 rounded-full hover:bg-slate-100 transition-all flex-shrink-0">
             <ChevronRight className="w-6 h-6 text-slate-900" />
           </button>
@@ -64,10 +168,10 @@ const Header = ({ title, step, setStep, step2Result, selectedCategory, step4Resu
 };
 
 const AIQuestionBox = ({ qaInput, setQaInput, askAI }) => (
-  <div className="p-6 bg-slate-700 rounded-[2rem] shadow-xl space-y-4 my-8 text-[15px]">
+  <div className="p-6 bg-slate-700 rounded-[2rem] shadow-xl space-y-4 my-8 text-[16px]">
     <div className="flex items-center gap-2 text-white">
       <MessageSquare className="w-4 h-4 text-blue-400" />
-      <span className="font-black uppercase tracking-widest text-[14px]">AI에게 질문/수정 요청하기</span>
+      <span className="font-black uppercase tracking-widest text-[16px]">AI에게 질문/수정 요청하기</span>
       <button onClick={() => askAI(qaInput)} className="bg-blue-600 text-white p-2 rounded-lg ml-auto transition-all active:scale-90">
         <Send className="w-4 h-4" />
       </button>
@@ -76,7 +180,7 @@ const AIQuestionBox = ({ qaInput, setQaInput, askAI }) => (
       type="text" 
       value={qaInput}
       onChange={(e) => setQaInput(e.target.value)}
-      className="w-full bg-white/10 border-none rounded-xl px-4 py-3 text-white text-[15px] outline-none placeholder:text-white/30" 
+      className="w-full bg-white/10 border-none rounded-xl px-4 py-3 text-white text-[16px] outline-none placeholder:text-white/30" 
       placeholder="분석 결과에 대해 질문하거나 수정을 요청하세요"
       onKeyDown={(e) => e.key === 'Enter' && askAI(qaInput)}
     />
@@ -92,13 +196,22 @@ const App = () => {
   const [loadingMsg, setLoadingMsg] = useState("");
   const [error, setError] = useState(null);
   
-  // Analysis Results
+  // App 1 Analysis Results
   const [step1Result, setStep1Result] = useState(null);
   const [step2Result, setStep2Result] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [step3Result, setStep3Result] = useState(null);
   const [selectedPoint, setSelectedPoint] = useState(null);
   const [step4Result, setStep4Result] = useState(null);
+
+  // App 2 (5Whys) Analysis Results
+  const [deepDiveInput, setDeepDiveInput] = useState("");
+  const [perspective, setPerspective] = useState("사용 불편 관점"); // 초기 관점 고정
+  const [rootCauses, setRootCauses] = useState([]);
+  const [selectedCauseId, setSelectedCauseId] = useState(null);
+  const [deepHypotheses, setDeepHypotheses] = useState([]);
+  const [selectedDeepHypoId, setSelectedDeepHypoId] = useState(null);
+  const [finalBrief, setFinalBrief] = useState(null);
 
   // Q&A & Opinion Modal State
   const [qaInput, setQaInput] = useState("");
@@ -116,7 +229,7 @@ const App = () => {
 
   // Step Change Scroll Reset
   useEffect(() => {
-    window.scrollTo(0, 0);
+    window.scrollTo({ top: 0, behavior: 'instant' });
   }, [step]);
 
   const updateDataAndCount = (text) => {
@@ -125,8 +238,8 @@ const App = () => {
     setItemCount(count);
   };
 
-  // API Helper
-  const callGemini = async (prompt, isJson = true, useSearch = false) => {
+  // Shared API Helper
+  const callGemini = async (prompt, isJson = true, useSearch = false, systemInstruction = null) => {
     setIsAnalyzing(true);
     let delay = 1000;
     for (let i = 0; i < 5; i++) {
@@ -139,6 +252,10 @@ const App = () => {
         if (useSearch) {
           payload.tools = [{ "google_search": {} }];
         }
+
+        if (systemInstruction) {
+          payload.systemInstruction = { parts: [{ text: systemInstruction }] };
+        }
         
         const response = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`,
@@ -149,14 +266,13 @@ const App = () => {
           }
         );
 
-        if (!response.ok) throw new Error(`API Key가 유효하지 않거나 통신 오류가 발생했습니다. (Status: ${response.status})`);
+        if (!response.ok) throw new Error(`API 인증 실패 또는 호출 오류가 발생했습니다. (Status: ${response.status})`);
         
         const result = await response.json();
         const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
         
         if (!text) throw new Error("AI 응답이 비어있습니다.");
 
-        // Clean JSON string if markdown blocks exist
         const jsonStart = text.indexOf('{');
         const jsonEnd = text.lastIndexOf('}') + 1;
         const jsonStr = jsonStart !== -1 ? text.substring(jsonStart, jsonEnd) : text;
@@ -208,7 +324,7 @@ const App = () => {
     }
   };
 
-  // Step 1: Overall Analysis
+  // App 1: Handlers
   const handleStep1Analysis = async () => {
     if (!rawData.trim()) { setError("데이터를 입력해주세요."); return; }
     setLoadingMsg("전체 카테고리 분류 및 요약 중...");
@@ -229,7 +345,6 @@ Provide overall categorization and summary in JSON: {"summary": "...", "categori
     } catch (err) { setError(err.message || "1단계 분석 실패"); }
   };
 
-  // Step 2: UX/Design Deep Dive
   const handleStep2Analysis = async () => {
     setLoadingMsg("UX/디자인 특화 심화 분석 중...");
     const prompt = `Data: "${rawData}"
@@ -249,57 +364,74 @@ Provide JSON: {"summary": "...", "uxCategories": [{"name": "...", "summary": "..
     } catch (err) { setError("2단계 분석 실패"); }
   };
 
-  // Step 3: Contextual Analysis (Grounded)
-  const handleStep3Analysis = async (category) => {
-    if (!category) return;
-    setLoadingMsg("시니어 리서처 맥락 분석 중...");
-    const prompt = `
-      # Role: 시니어 UX 디자인 리서처 및 CMF 전략 컨설턴트
-      # Task: [디자인 이슈: ${category.name}] 맥락적 분석 보고서 작성
-      # Data Context: "${rawData}"
-      # Instruction: 
-        - 반드시 한국어로만 작성하십시오. 
-        - 답변에 **(별표 두개)와 같은 마크다운 강조 표시를 절대 포함하지 마십시오.
-        - 구글 검색을 활용하여 최신 트렌드를 반영하십시오.
-        - JSON 이외의 텍스트를 절대 포함하지 마십시오.
-      # JSON Format:
-      {
-        "reportTitle": "보고서 제목",
-        "sections": [{ "title": "섹션 제목", "content": "상세 분석 내용" }],
-        "keyFindings": [{ "id": 1, "title": "핵심 발견 사항 제목", "desc": "요약 설명" }]
+  // App 2 (5Whys): Handlers
+  const start5WhysAnalysis = async () => {
+    if (!deepDiveInput.trim()) { setError("분석할 의견/가설을 입력해주세요."); return; }
+    setLoadingMsg(`[${perspective}] 기반으로 5Whys 분석을 시작합니다...`);
+    
+    try {
+      const res = await callGemini(`User Opinion: ${deepDiveInput}`, true, false, PROMPTS.ANALYSIS(perspective));
+      if (res && res.rootCauses) {
+        setRootCauses(res.rootCauses);
+        setSelectedCauseId(null);
+        setStep(5);
       }
-    `;
-    try {
-      const result = await callGemini(prompt, true, true);
-      setStep3Result(result);
-      setStep(4); 
-    } catch (err) { 
-      setError("3단계 맥락 분석에 실패했습니다. API 응답 형식을 확인하거나 다시 시도해 주세요."); 
-    }
+    } catch (err) { setError("5Whys 근본 원인 분석에 실패했습니다."); }
   };
 
-  // Step 4: Strategic Hypotheses
-  const handleStep4Analysis = async (point) => {
-    setSelectedPoint(point);
-    setLoadingMsg("전략 인사이트 및 가설 도출 중...");
-    const prompt = `발견 사항: "${point.title}: ${point.desc}"
-모든 답변은 한국어로 작성하십시오. 
-[중요 지침]
-1. 답변에 **(별표 두개)와 같은 마크다운 강조 표시를 절대 포함하지 마십시오.
-
-Provide insights and hypotheses in JSON: {"strategicInsights": ["string"], "conceptHypotheses": [{"title": "string", "description": "string", "expectedOutcome": "string"}]}`;
+  const changePerspective = async (newPerspective) => {
+    if (perspective === newPerspective) return;
+    setPerspective(newPerspective);
+    // 관점이 바뀌면 원인 분석도 해당 관점으로 다시 갱신
+    setLoadingMsg(`[${newPerspective}] 관점으로 다시 5Whys 분석 중입니다...`);
     try {
-      const result = await callGemini(prompt);
-      setStep4Result(result);
-      setStep(5);
-    } catch (err) { setError("4단계 분석 실패"); }
+      const res = await callGemini(`User Opinion: ${deepDiveInput}`, true, false, PROMPTS.ANALYSIS(newPerspective));
+      if (res && res.rootCauses) {
+        setRootCauses(res.rootCauses);
+        setSelectedCauseId(null);
+      }
+    } catch (err) { setError("관점 변경 분석에 실패했습니다."); }
   };
 
-  // AI Q&A Action
+  const exploreDeepHypotheses = () => {
+    if (selectedCauseId === null) return;
+    const selected = rootCauses.find(c => c.id === selectedCauseId);
+    setLoadingMsg(`[${perspective}] 관점에 맞춰 심층 인사이트를 확장 중입니다...`);
+    
+    callGemini(`User Opinion: ${deepDiveInput}\nReal Cause: ${selected.realCause}`, true, false, PROMPTS.HYPOTHESIS(perspective))
+      .then(res => {
+        if (res && res.hypotheses) {
+          setDeepHypotheses(res.hypotheses);
+          setSelectedDeepHypoId(null);
+          setStep(6);
+        }
+      })
+      .catch(err => setError("심층 인사이트 도출에 실패했습니다."));
+  };
+
+  const generateFinalReport = () => {
+    if (selectedDeepHypoId === null) return;
+    const selectedHypo = deepHypotheses.find(h => h.id === selectedDeepHypoId);
+    const selectedCause = rootCauses.find(c => c.id === selectedCauseId);
+    setLoadingMsg("종합 인사이트 리포트를 생성 중입니다...");
+    
+    const promptData = `Opinion: ${deepDiveInput}\nCause: ${selectedCause.realCause}\nHypothesis Title: ${selectedHypo.title}\nStep1: ${selectedHypo.step1}\nStep2: ${selectedHypo.step2}\nStep3: ${selectedHypo.step3}`;
+    
+    callGemini(promptData, true, false, PROMPTS.SUMMARY)
+      .then(res => {
+        if (res && res.finalReport) {
+          setFinalBrief(res.finalReport);
+          setStep(7);
+        }
+      })
+      .catch(err => setError("리포트 생성에 실패했습니다."));
+  };
+
+  // Utils
   const askAI = async (question) => {
     if (!question) return;
     setLoadingMsg("AI 답변 생성 중...");
-    const context = JSON.stringify({ step1Result, step2Result, step3Result, step4Result });
+    const context = JSON.stringify({ step1Result, step2Result, rootCauses, deepHypotheses });
     const prompt = `Context: ${context}\nUser Question: ${question}\n모든 답변은 한국어로 작성하십시오. 답변에 ** 강조 표시를 절대 사용하지 마세요. Provide a detailed answer as a JSON: {"answer": "string"}`;
     try {
       const res = await callGemini(prompt);
@@ -316,6 +448,7 @@ Provide insights and hypotheses in JSON: {"strategicInsights": ["string"], "conc
     textArea.select();
     document.execCommand('copy');
     document.body.removeChild(textArea);
+    alert("현재 화면의 내용이 복사되었습니다.");
   };
 
   const copyOpinionsToClipboard = (title, summary, opinions) => {
@@ -326,12 +459,27 @@ Provide insights and hypotheses in JSON: {"strategicInsights": ["string"], "conc
     textArea.select();
     document.execCommand('copy');
     document.body.removeChild(textArea);
+    alert("원문 의견이 복사되었습니다.");
+  };
+
+  const copyFinalReport = () => {
+    let text = "";
+    if (finalBrief) {
+      const r = finalBrief;
+      text = `[${r.step1.title}]\n${r.step1.content}\n\n[${r.step2.title}]\n${r.step2.content}\n\n[${r.step3.title}]\n${r.step3.content}\n\n[${r.step4.title}]\n${r.step4.content}`;
+    }
+    const t = document.createElement("textarea");
+    t.value = text || "데이터가 없습니다.";
+    document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t);
+    alert("최종 리포트가 복사되었습니다.");
   };
 
   const resetAll = () => {
-    setStep(1); setStep1Result(null); setStep2Result(null);
-    setStep3Result(null); setStep4Result(null);
+    setStep(1); 
+    setStep1Result(null); setStep2Result(null);
     setSelectedCategory(null); setRawData(""); setItemCount(0);
+    setDeepDiveInput(""); setRootCauses([]); setDeepHypotheses([]); setFinalBrief(null);
+    setPerspective("사용 불편 관점");
   };
 
   const handleFileUpload = (e) => {
@@ -356,16 +504,16 @@ Provide insights and hypotheses in JSON: {"strategicInsights": ["string"], "conc
   };
 
   return (
-    <div className="w-full max-w-[430px] mx-auto bg-[#f8fafc] min-h-screen shadow-2xl overflow-hidden relative font-sans text-slate-900 text-[15px]">
+    <div className="w-full max-w-[430px] mx-auto bg-[#f8fafc] min-h-screen shadow-2xl overflow-hidden relative font-sans text-slate-900 text-[16px]">
       
       {/* Loading Overlay */}
       {isAnalyzing && (
         <div className="fixed inset-0 z-[10000] bg-white/90 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center max-w-[430px] mx-auto">
-          <div className="w-20 h-20 rounded-full border-[6px] border-slate-100 border-t-blue-600 animate-spin mb-8 flex items-center justify-center">
-            <Sparkles className="text-blue-600 animate-pulse w-8 h-8" />
+          <div className="w-20 h-20 rounded-full border-[6px] border-slate-100 border-t-orange-500 animate-spin mb-8 flex items-center justify-center shadow-lg">
+            <Sparkles className="text-orange-500 animate-pulse w-8 h-8" />
           </div>
-          <h3 className="text-xl font-bold text-slate-900 mb-3 tracking-tighter">분석 엔진 가동 중</h3>
-          <p className="text-slate-600">{loadingMsg}</p>
+          <h3 className="text-[22px] font-black text-slate-900 mb-3 tracking-tighter">심층 분석 진행 중</h3>
+          <p className="text-slate-600 font-medium text-[16px] leading-relaxed">{loadingMsg}</p>
         </div>
       )}
 
@@ -384,7 +532,7 @@ Provide insights and hypotheses in JSON: {"strategicInsights": ["string"], "conc
       {qaModal.visible && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
           <div className="bg-slate-800 text-white p-8 rounded-3xl w-full max-w-sm shadow-2xl relative border border-white/10 animate-fade-in">
-            <button onClick={() => setQaModal({ visible: false, question: "", answer: "" })} className="absolute top-5 right-5 text-white/50">
+            <button onClick={() => setQaModal({ visible: false, question: "", answer: "" })} className="absolute top-5 right-5 text-white/50 hover:text-white">
               <X className="w-6 h-6" />
             </button>
             <div className="mb-6 flex items-center gap-2">
@@ -426,7 +574,7 @@ Provide insights and hypotheses in JSON: {"strategicInsights": ["string"], "conc
             <div className="mb-6 pr-12">
               <div className="flex items-center gap-2 mb-2">
                 <Quote className="text-blue-600 w-5 h-5 fill-blue-600/10" />
-                <span className="text-[11px] font-black text-blue-600 uppercase tracking-widest text-[15px]">Raw Data Feedback</span>
+                <span className="text-[16px] font-black text-blue-600 uppercase tracking-widest">Raw Data Feedback</span>
               </div>
               <h4 className="text-xl font-black text-slate-900 leading-tight">"{opinionModal.title}" 원문 의견</h4>
             </div>
@@ -445,37 +593,45 @@ Provide insights and hypotheses in JSON: {"strategicInsights": ["string"], "conc
         </div>
       )}
 
-      {/* Step Contents */}
-      <main id="main-content" className="pb-10 min-h-screen">
+      {/* Header 적용 */}
+      <Header 
+        step={step} setStep={setStep} 
+        step1Result={step1Result} step2Result={step2Result} selectedCategory={selectedCategory} 
+        rootCauses={rootCauses} deepHypotheses={deepHypotheses} finalBrief={finalBrief}
+        copyToClipboard={copyToClipboard} resetAll={resetAll}
+      />
+
+      {/* Main Contents */}
+      <main id="main-content" className="pb-10 min-h-screen pt-14">
         
-        {/* Step 0: API Key Input Page */}
+        {/* Step 0: API Key Input 화면 */}
         {step === 0 && (
           <div className="min-h-screen flex flex-col items-center justify-center p-10 bg-white text-center animate-fade-in relative">
-            <div className="w-24 h-24 bg-[#2563EB] rounded-full flex items-center justify-center mb-10 shadow-[0_10px_20px_rgba(37,99,235,0.3)] transition-all">
+            <div className="w-24 h-24 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-[2rem] flex items-center justify-center mb-10 shadow-2xl transition-all">
               <Fingerprint className="text-white w-12 h-12" />
             </div>
             <div className="w-full mb-2 px-2">
-              <h1 className="font-black italic tracking-tighter text-[#1E293B] leading-[1.1] text-[48px]">Design Research</h1>
-              <h1 className="font-black italic tracking-tighter text-[#1E293B] leading-[1.1] mb-8 text-[48px]">Voice of User</h1>
+              <h1 className="font-black tracking-tighter text-[#4355FF] leading-[1.1] text-[45px]">User Voice Analyze</h1>
+              <h1 className="font-black tracking-tighter text-[#4355FF] leading-[1.1] mb-8 text-[45px]">& Design Insight</h1>
             </div>
-            <p className="text-[#94A3B8] font-bold mb-12 text-[15px]">AI 기반 UX 전략 분석 엔진 인증</p>
-            <div className="w-full space-y-4 text-[15px]">
+            <p className="text-[#94A3B8] font-bold mb-12 text-[16px]">데이터 분석에서 디자인 인사이트 도출까지</p>
+            <div className="w-full space-y-4 text-[16px]">
               <div className="py-2">
-                <a href="https://aistudio.google.com/app/apikey" target="_blank" className="text-[#2563EB] font-bold text-[15px] underline underline-offset-4">개인 API Key 발급받기</a>
+                <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-indigo-600 font-bold text-[16px] underline underline-offset-4">개인 API Key 발급받기</a>
               </div>
               <input 
                 type="password" 
                 id="api-key-input"
-                className="w-full p-5 bg-white border-2 border-slate-100 rounded-2xl text-center focus:ring-2 focus:ring-blue-500 outline-none text-lg placeholder:text-slate-300 font-medium text-[15px]" 
-                placeholder="API KEY 입력"
+                className="w-full p-5 bg-white border-2 border-slate-100 rounded-2xl text-center focus:ring-2 focus:ring-indigo-500 outline-none text-lg placeholder:text-slate-300 font-medium text-[16px]" 
+                placeholder="Gemini API KEY 입력"
                 onKeyDown={(e) => e.key === 'Enter' && validateKey(e.target.value)}
               />
-              <p className="text-xs text-gray-500">분석을 위해 유효한 Gemini API 키를 입력해 주세요. (로컬 브라우저 세션에만 임시 유지됩니다)</p>
+              <p className="text-[16px] text-gray-500">유효한 Gemini API 키를 입력해 주세요.</p>
               <button 
                 onClick={() => validateKey(document.getElementById('api-key-input').value)} 
-                className="w-full py-5 bg-[#1E3A8A] text-white rounded-2xl font-black active:scale-95 transition-all text-[16px] shadow-lg"
+                className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black active:scale-95 transition-all text-[17px] shadow-xl"
               >
-                API Key 입력 후 시작
+                API Key 확인 후 시작
               </button>
             </div>
           </div>
@@ -483,17 +639,18 @@ Provide insights and hypotheses in JSON: {"strategicInsights": ["string"], "conc
 
         {/* Step 1: Input Page */}
         {step === 1 && (
-          <div className="flex flex-col min-h-screen bg-slate-900 text-white animate-fade-in p-8 pt-24 justify-center">
-            <div className="absolute top-[-20%] left-[-20%] w-[140%] h-[60%] bg-blue-600 rounded-full blur-[100px] opacity-30"></div>
+          <div className="flex flex-col min-h-screen bg-slate-900 text-white animate-fade-in p-8 pt-10 justify-center relative overflow-hidden">
+            <div className="absolute top-[-20%] left-[-20%] w-[140%] h-[60%] bg-blue-600 rounded-full blur-[100px] opacity-20"></div>
             <div className="relative z-10 space-y-12">
               <div className="space-y-6">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/20 text-xs font-bold uppercase">
-                  <Sparkles className="text-yellow-400 w-4 h-4" /> Strategy Intelligence
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/20 text-[16px] font-bold uppercase">
+                  INTEGRATED INTELLIGENCE
                 </div>
-                <h1 className="font-black leading-tight tracking-tighter italic text-white text-[42px]">
-                  데이터 기반으로<br/>사용자 마음을<br/><span className="text-sky-400 text-[42px]">발견하세요.</span>
+                <h1 className="font-black leading-tight tracking-tighter text-white text-[42px]">
+                  데이터 기반으로<br/>사용자 마음을<br/>
+                  <span className="text-sky-400 text-[45px] leading-tight">발견하세요.</span>
                 </h1>
-                <p className="text-slate-400 leading-relaxed font-medium text-[17px]">시니어 리서처 페르소나와 검색 증강(RAG) 기술이 결합된 고해상도 피드백 분석 도구입니다.</p>
+                <p className="text-slate-400 leading-relaxed font-medium text-[17px]">Raw 데이터 분석에서 5Whys 진짜 원인 파악까지 한번에 진행하는 올인원 도구입니다.</p>
               </div>
 
               <div className="space-y-4">
@@ -502,11 +659,11 @@ Provide insights and hypotheses in JSON: {"strategicInsights": ["string"], "conc
                     rows={4}
                     value={rawData}
                     onChange={(e) => updateDataAndCount(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-[2rem] p-6 text-white outline-none focus:border-blue-500 transition-all font-medium resize-none text-[17px]"
-                    placeholder="피드백이나 인터뷰 데이터를 입력하세요"
+                    className="w-full bg-white/5 border border-white/10 rounded-[2rem] p-6 text-white outline-none focus:border-blue-500 transition-all font-medium resize-none text-[17px] leading-relaxed"
+                    placeholder="VOC, 사용자 피드백, 리뷰 등의 데이터를 입력하세요"
                   />
                   {itemCount > 0 && (
-                    <div className="absolute top-4 right-4 bg-blue-600 px-3 py-1 rounded-full text-[11px] font-black text-white">
+                    <div className="absolute top-4 right-4 bg-blue-600 px-3 py-1 rounded-full text-[16px] font-black text-white">
                       {itemCount}건 감지
                     </div>
                   )}
@@ -515,15 +672,14 @@ Provide insights and hypotheses in JSON: {"strategicInsights": ["string"], "conc
                 <div className="flex gap-2 mt-14">
                   <input type="file" id="file-up" className="hidden" accept=".txt,.csv,.xlsx,.xls" onChange={handleFileUpload} />
                   <label htmlFor="file-up" className="flex-1 bg-white/10 py-4 rounded-2xl flex items-center justify-center gap-3 cursor-pointer border border-white/5 hover:bg-white/20 transition-all">
-                    <FileSpreadsheet className="text-slate-400" size={24} />
-                    <span className="font-bold text-slate-300">파일 업로드</span>
+                    <span className="font-bold text-slate-300">엑셀/텍스트 업로드</span>
                   </label>
                   <button 
                     onClick={handleStep1Analysis}
                     disabled={!rawData.trim()}
-                    className="flex-[1.5] bg-white text-slate-900 rounded-2xl font-black text-lg active:scale-95 transition-all disabled:bg-slate-700 disabled:text-slate-500 py-4"
+                    className="flex-1 bg-white text-slate-900 rounded-2xl font-black text-lg active:scale-95 transition-all disabled:bg-slate-700 disabled:text-slate-500 py-4 shadow-xl"
                   >
-                    분석 시작
+                    1단계 분석 시작
                   </button>
                 </div>
               </div>
@@ -531,33 +687,23 @@ Provide insights and hypotheses in JSON: {"strategicInsights": ["string"], "conc
           </div>
         )}
 
-        {/* Step 2: Overall Summary (1단계 결과) */}
+        {/* Step 2: Overall Summary */}
         {step === 2 && step1Result && (
-          <div className="pt-20 px-4 animate-fade-in">
-            <Header 
-              title="전체 데이터 요약" 
-              step={step} 
-              setStep={setStep} 
-              step2Result={step2Result} 
-              selectedCategory={selectedCategory} 
-              step4Result={step4Result} 
-              copyToClipboard={copyToClipboard}
-              resetAll={resetAll}
-            />
+          <div className="pt-6 px-4 animate-fade-in pb-32">
             <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white mb-6 shadow-2xl">
-              <span className="bg-blue-600 text-[11px] px-3 py-1 rounded-full font-black tracking-widest uppercase mb-4 inline-block text-[15px]">EXECUTIVE SUMMARY</span>
+              <span className="bg-blue-600 text-[16px] px-3 py-1 rounded-full font-black tracking-widest uppercase mb-4 inline-block">EXECUTIVE SUMMARY</span>
               <p className="text-[17px] font-medium leading-[1.8] italic opacity-90 text-justify whitespace-pre-line text-white">"{step1Result.summary}"</p>
             </div>
             <div className="space-y-4">
               {step1Result.categories.map((cat, i) => (
-                <div key={i} className="bg-white p-7 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col text-justify">
+                <div key={i} className="bg-white p-7 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col text-justify card-shadow">
                   <div className="flex justify-between items-start mb-4">
                     <h3 className="font-black text-lg flex-1 leading-tight text-slate-900 text-[20px]">{cat.name}</h3>
                     <button 
                       onClick={() => setOpinionModal({ visible: true, title: cat.name, summary: cat.summary, opinions: cat.opinions })}
-                      className="bg-slate-100 px-3 py-1 rounded-lg font-black text-slate-500 text-xs shrink-0 ml-2 hover:bg-blue-600 hover:text-white transition-all active:scale-90"
+                      className="bg-slate-100 px-3 py-1 rounded-lg font-black text-slate-500 text-[16px] shrink-0 ml-2 hover:bg-blue-600 hover:text-white transition-all active:scale-90"
                     >
-                      {cat.count}건
+                      {cat.count}건 확인
                     </button>
                   </div>
                   <p className="text-slate-500 font-medium leading-relaxed w-full text-[17px] whitespace-pre-line">{cat.summary}</p>
@@ -565,29 +711,19 @@ Provide insights and hypotheses in JSON: {"strategicInsights": ["string"], "conc
               ))}
             </div>
             <AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} />
-            <button onClick={handleStep2Analysis} className="w-full py-6 bg-slate-900 text-white rounded-2xl font-black text-lg shadow-xl mb-12 active:scale-95 transition-all">
-              UX/디자인 심화 분석 이동
-            </button>
+            <div className="fixed bottom-0 left-0 right-0 p-5 bg-white/95 backdrop-blur-md border-t max-w-[430px] mx-auto shadow-2xl z-[60]">
+                <button onClick={handleStep2Analysis} className="w-full py-6 bg-slate-900 text-white rounded-2xl font-black text-lg active:scale-95 transition-all">
+                  2단계: UX/디자인 심화 분석 이동
+                </button>
+            </div>
           </div>
         )}
 
-        {/* Step 3: UX Deep Dive Selection (2단계 결과 및 선택) */}
+        {/* Step 3: UX Deep Dive Selection */}
         {step === 3 && step2Result && (
-          <div className="pt-20 px-4 animate-fade-in pb-48">
-            <Header 
-              title="UX 심화 분석" 
-              step={step} 
-              setStep={setStep} 
-              step2Result={step2Result} 
-              selectedCategory={selectedCategory} 
-              step4Result={step4Result} 
-              copyToClipboard={copyToClipboard} 
-              resetAll={resetAll}
-              showBack
-            />
-            
+          <div className="pt-6 px-4 animate-fade-in pb-48">
             <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white mb-8 shadow-2xl text-justify">
-              <span className="bg-indigo-600 text-[11px] px-3 py-1 rounded-full font-black tracking-widest uppercase mb-4 inline-block text-[15px]">UX/DESIGN SUMMARY</span>
+              <span className="bg-indigo-600 text-[16px] px-3 py-1 rounded-full font-black tracking-widest uppercase mb-4 inline-block">UX/DESIGN SUMMARY</span>
               <p className="text-[17px] font-medium leading-[1.8] italic opacity-90 whitespace-pre-line text-white">"{step2Result.summary}"</p>
             </div>
 
@@ -595,24 +731,31 @@ Provide insights and hypotheses in JSON: {"strategicInsights": ["string"], "conc
               {step2Result.uxCategories.map((cat, i) => (
                 <div 
                   key={i} 
-                  onClick={() => setSelectedCategory(cat)} 
-                  className={`w-full p-7 rounded-[2rem] shadow-sm border transition-all flex flex-col text-left cursor-pointer ${selectedCategory?.name === cat.name ? 'ring-4 ring-blue-500 bg-blue-50 border-blue-200' : 'bg-white border-slate-100'}`}
+                  className={`w-full p-7 rounded-[2rem] border transition-all flex flex-col text-left card-shadow ${selectedCategory?.name === cat.name ? 'bg-slate-50 border-[#4355FF] ring-4 ring-[#4355FF]' : 'bg-white border-slate-100'}`}
                 >
                   <div className="flex justify-between items-start mb-4 w-full">
-                    <h3 className={`font-black text-lg flex-1 leading-tight text-[20px] ${selectedCategory?.name === cat.name ? 'text-blue-900' : 'text-slate-900'}`}>
+                    <h3 className={`font-black text-lg flex-1 leading-tight text-[20px] text-slate-900`}>
                       {cat.name}
                     </h3>
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpinionModal({ visible: true, title: cat.name, summary: cat.summary, opinions: cat.opinions });
-                      }}
-                      className={`px-3 py-1 rounded-lg font-black text-xs shrink-0 ml-2 transition-colors active:scale-90 ${selectedCategory?.name === cat.name ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
-                    >
-                      {cat.count}건
-                    </button>
+                    <div className="flex flex-col items-end gap-2 shrink-0 ml-2">
+                      <button 
+                        onClick={() => setOpinionModal({ visible: true, title: cat.name, summary: cat.summary, opinions: cat.opinions })}
+                        className={`px-3 py-1 rounded-lg font-black text-[16px] transition-colors active:scale-90 bg-slate-100 text-slate-500 hover:bg-slate-200`}
+                      >
+                        {cat.count}건 확인
+                      </button>
+                      <button 
+                        onClick={() => {
+                            setSelectedCategory(cat);
+                            setDeepDiveInput(`분석 이슈: ${cat.name}\n상세 내용: ${cat.summary}`);
+                        }}
+                        className={`px-6 py-2 text-white rounded-lg font-black text-[16px] transition-colors shadow-md ${selectedCategory?.name === cat.name ? 'bg-blue-800' : 'bg-[#4355FF] hover:bg-blue-700 shadow-blue-500/20'}`}
+                      >
+                        선택
+                      </button>
+                    </div>
                   </div>
-                  <p className={`font-medium leading-relaxed w-full text-justify whitespace-pre-line text-[17px] ${selectedCategory?.name === cat.name ? 'text-blue-700' : 'text-slate-500'}`}>
+                  <p className={`font-medium leading-relaxed w-full text-justify whitespace-pre-line text-[17px] text-slate-500`}>
                     {cat.summary}
                   </p>
                 </div>
@@ -623,126 +766,215 @@ Provide insights and hypotheses in JSON: {"strategicInsights": ["string"], "conc
 
             <div className="fixed bottom-0 left-0 right-0 p-5 bg-white/95 backdrop-blur-md border-t max-w-[430px] mx-auto shadow-2xl z-[60]">
                 <div className="mb-4 px-1 text-center">
-                    <p className="text-[17px] font-black text-slate-900 tracking-tight">맥락 분석할 이슈를 선택하세요</p>
+                    <p className="text-[17px] font-black text-slate-900 tracking-tight">
+                        {selectedCategory ? `"${selectedCategory.name}"가 선택되었습니다` : "항목의 [선택] 버튼을 눌러 분석을 진행하세요"}
+                    </p>
                 </div>
                 <button 
                     disabled={!selectedCategory} 
-                    onClick={() => handleStep3Analysis(selectedCategory)}
-                    className="w-full py-6 bg-slate-900 text-white rounded-2xl font-black text-lg active:scale-95 transition-all disabled:bg-slate-200 disabled:text-slate-400 flex items-center justify-center gap-3"
+                    onClick={() => setStep(4)}
+                    className="w-full py-6 bg-orange-600 text-white rounded-2xl font-black text-lg active:scale-95 transition-all disabled:bg-slate-200 disabled:text-slate-400 shadow-lg shadow-orange-600/20"
                 >
-                    <Layers size={20} />
-                    {selectedCategory ? `"${selectedCategory.name}" 맥락 분석 시작` : "이슈를 먼저 선택해 주세요"}
+                    5Whys 분석 시작
                 </button>
             </div>
           </div>
         )}
 
-        {/* Step 4: Contextual Analysis Result (3단계 결과) */}
-        {step === 4 && step3Result && (
-          <div className="pt-20 px-4 animate-fade-in pb-32 text-justify">
-            <Header 
-              title="맥락 분석 리포트" 
-              step={step} 
-              setStep={setStep} 
-              step2Result={step2Result} 
-              selectedCategory={selectedCategory} 
-              step4Result={step4Result} 
-              copyToClipboard={copyToClipboard}
-              resetAll={resetAll}
-              showBack
-            />
-            <div className="mt-8 space-y-12 animate-fade-in">
-                <div className="text-center px-4">
-                  <div className="w-12 h-1 bg-blue-600 mx-auto mb-6 rounded-full"></div>
-                  <h2 className="text-[20px] font-black leading-tight italic text-slate-900">{step3Result.reportTitle}</h2>
-                </div>
-                {step3Result.sections.map((sec, i) => (
-                  <div key={i} className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm relative overflow-hidden">
-                    <div className="text-blue-600 font-black text-[10px] uppercase tracking-[0.3em] mb-4 text-[15px]">{sec.title}</div>
-                    <p className="text-slate-700 leading-[1.8] font-medium text-justify text-[17px]">{sec.content}</p>
-                    <span className="absolute top-6 right-8 text-5xl font-black text-slate-50 opacity-10 select-none">0{i+1}</span>
-                  </div>
-                ))}
-                
-                <div className="bg-slate-900 rounded-[2.5rem] p-10 text-white text-justify">
-                  <h4 className="text-xl font-black mb-8 flex items-center gap-2 text-white"><Target className="text-indigo-400" /> 전략적 발견 사항</h4>
-                  <p className="text-slate-400 text-sm mb-6 font-medium italic text-[17px]">해결책을 도출할 핵심 포인트를 선택하세요.</p>
-                  <div className="space-y-4">
-                    {step3Result.keyFindings.map((f) => (
-                      <button key={f.id} onClick={() => handleStep4Analysis(f)} className={`w-full p-6 border rounded-2xl text-left transition-all group ${selectedPoint?.id === f.id ? 'bg-indigo-600 border-indigo-400' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}>
-                        <h5 className={`font-black mb-2 flex items-center gap-2 transition-colors text-[17px] ${selectedPoint?.id === f.id ? 'text-white' : 'text-indigo-400'}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${selectedPoint?.id === f.id ? 'bg-white' : 'bg-indigo-400'}`}></span> {f.title}
-                        </h5>
-                        <p className={`${selectedPoint?.id === f.id ? 'text-indigo-100' : 'text-slate-400'} text-sm leading-relaxed text-[17px]`}>{f.desc}</p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} />
+        {/* Step 4: 5Whys Input Confirmation */}
+        {step === 4 && (
+          <div className="pt-6 px-6 animate-fade-in pb-48">
+            <div className="mb-8">
+              <h2 className="text-[28px] font-black text-slate-900 leading-tight">분석할 <span className="gradient-text">대상 가설</span></h2>
+              <p className="text-slate-500 font-medium mt-2">선택한 내용입니다. 필요 시 수정하여 분석을 시작하세요.</p>
+            </div>
+            <div className="bg-white p-5 rounded-[2rem] card-shadow border border-orange-100 mb-8">
+              <textarea 
+                value={deepDiveInput}
+                onChange={(e) => setDeepDiveInput(e.target.value)}
+                className="w-full h-56 outline-none text-[17px] font-medium text-slate-700 resize-none leading-relaxed bg-transparent"
+              />
+            </div>
+            <AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} />
+            <div className="fixed bottom-0 left-0 right-0 p-6 bg-white/95 backdrop-blur-md border-t max-w-[430px] mx-auto z-40">
+              <button onClick={start5WhysAnalysis} className="w-full py-5 bg-slate-900 text-white rounded-[1.2rem] font-black text-[17px] shadow-xl active:scale-95 transition-all">
+                5Whys 분석 시작
+              </button>
             </div>
           </div>
         )}
 
-        {/* Step 5: Final Strategic Report */}
-        {step === 5 && step4Result && (
-          <div className="pt-20 px-4 animate-fade-in pb-32 text-justify">
-            <Header 
-              title="전략적 컨셉 가설" 
-              step={step} 
-              setStep={setStep} 
-              step2Result={step2Result} 
-              selectedCategory={selectedCategory} 
-              step4Result={step4Result} 
-              copyToClipboard={copyToClipboard}
-              resetAll={resetAll}
-              showBack
-            />
-            
-            <div className="space-y-10">
-              <div className="bg-slate-900 rounded-[3rem] p-10 text-white relative overflow-hidden shadow-2xl">
-                <Lightbulb className="absolute -bottom-10 -right-10 opacity-10 text-yellow-400 w-48 h-48" />
-                <h3 className="text-2xl font-black mb-8 flex items-center gap-3 text-white">
-                  <Lightbulb className="text-yellow-400" /> 전략적 인사이트
-                </h3>
-                <div className="space-y-4 relative z-10">
-                  {step4Result.strategicInsights.map((insight, i) => (
-                    <div key={i} className="flex gap-4 p-5 bg-white/5 border border-white/10 rounded-2xl backdrop-blur-md">
-                      <div className="w-6 h-6 bg-blue-600 rounded flex items-center justify-center shrink-0 font-black text-[10px] text-white">0{i+1}</div>
-                      <p className="font-medium text-slate-100 leading-relaxed text-justify text-[17px]">{insight}</p>
-                    </div>
-                  ))}
+        {/* Step 5: 5Whys Root Causes Analysis */}
+        {step === 5 && rootCauses.length > 0 && (
+          <div className="pt-6 px-5 animate-fade-in pb-64">
+            <p className="text-slate-900 mb-6 px-1 font-bold text-[16px]">근본 원인을 찾기 위해 5단계의 꼬리 질문을 던져 분석한 결과입니다.</p>
+            <div className="space-y-5">
+              {rootCauses.map((rc, idx) => (
+                <div 
+                  key={rc.id} 
+                  className={`bg-white p-6 rounded-[1.8rem] border-2 transition-all card-shadow ${selectedCauseId === rc.id ? 'bg-slate-50 border-[#4355FF] ring-4 ring-[#4355FF]' : 'border-white'}`}
+                >
+                  <div className="flex justify-between items-center mb-4">
+                    <span className="px-3 py-1 bg-orange-100 text-orange-600 rounded-full text-[16px] font-bold uppercase tracking-wider">Analysis Case {idx + 1}</span>
+                    <button 
+                      onClick={() => setSelectedCauseId(rc.id)}
+                      className={`px-6 py-2 text-white rounded-lg font-black text-[16px] transition-colors shadow-md ${selectedCauseId === rc.id ? 'bg-blue-800' : 'bg-[#4355FF] hover:bg-blue-700 shadow-blue-500/20'}`}
+                    >
+                      선택
+                    </button>
+                  </div>
+                  <div className="space-y-4 mb-6 border-l-2 border-slate-100 pl-4">
+                    {rc.chain?.map((cStep, cIdx) => (
+                      <p key={cIdx} className="text-[16px] font-medium text-slate-900 leading-relaxed whitespace-pre-line">
+                        {cStep.split('\n').map((line, lIdx) => (
+                          <span key={lIdx} className={line.startsWith('Why') ? 'font-black block' : 'block'}>
+                            {line}
+                          </span>
+                        ))}
+                      </p>
+                    ))}
+                  </div>
+                  <div className="pt-4 border-t border-slate-200">
+                    <p className="text-[16px] font-black text-orange-500 mb-2 uppercase tracking-widest flex items-center gap-2">
+                      Real Cause (진짜 원인)
+                    </p>
+                    <p className="text-[17px] font-bold text-slate-900 leading-relaxed text-justify">{rc.realCause}</p>
+                  </div>
                 </div>
-              </div>
+              ))}
+            </div>
 
-              <div className="space-y-6 px-2">
-                <h3 className="text-2xl font-black flex items-center gap-3 text-slate-900"><Target className="text-blue-600" /> 혁신 가설 제안</h3>
-                {step4Result.conceptHypotheses.map((h, i) => (
-                  <div key={i} className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-xl">
-                    <div className="flex justify-between items-center mb-6">
-                      <h4 className="text-[20px] font-black text-slate-900 leading-tight">{h.title}</h4>
-                      <div className="p-2 bg-emerald-50 rounded-lg text-emerald-500"><CheckCircle2 size={18} /></div>
+            <AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} />
+
+            <div className="fixed bottom-0 left-0 right-0 p-6 bg-white/95 backdrop-blur-md max-w-[430px] mx-auto z-40 border-t border-slate-100 shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
+              <div className="grid grid-cols-2 gap-2 mb-4">
+                {['사용 불편 관점', '기술 진화 관점', '심미적 관점', '비지니스 관점'].map(p => (
+                  <button 
+                    key={p} 
+                    onClick={() => changePerspective(p)} 
+                    className={`py-2.5 rounded-xl text-[16px] font-bold transition-all border ${perspective === p ? 'bg-orange-50 border-orange-500 text-orange-600' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'} text-[16px]`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+              <button 
+                onClick={exploreDeepHypotheses}
+                disabled={selectedCauseId === null} 
+                className={`w-full py-5 rounded-[1.2rem] font-black text-[17px] shadow-xl active:scale-95 transition-all flex justify-center items-center ${selectedCauseId === null ? 'bg-slate-200 text-slate-400' : 'bg-slate-900 text-white'}`}
+              >
+                진짜 원인 기반 인사이트 확장
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 6: Extended Insight Hypotheses */}
+        {step === 6 && deepHypotheses.length > 0 && (
+          <div className="pt-6 px-5 animate-fade-in pb-48">
+            <div className="mb-6">
+                <p className="text-slate-900 mb-4 px-1 font-bold text-[16px]">제안 관점을 선택하고 분석 항목을 결정하세요.</p>
+                <div className="grid grid-cols-2 gap-2 p-4 bg-white rounded-3xl border border-slate-100 card-shadow">
+                    {['사용 불편 관점', '기술 진화 관점', '심미적 관점', '비지니스 관점'].map(p => (
+                        <button 
+                            key={p} 
+                            onClick={() => changePerspective(p)} 
+                            className={`py-3 rounded-xl text-[15px] font-bold transition-all border ${perspective === p ? 'bg-orange-50 border-orange-500 text-orange-600 ring-2 ring-orange-200' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+                        >
+                            {p}
+                        </button>
+                    ))}
+                </div>
+            </div>
+            
+            <div className="grid gap-5">
+              {deepHypotheses.map(h => (
+                <div 
+                  key={h.id} 
+                  className={`bg-white p-7 rounded-[2rem] border-2 transition-all card-shadow ${selectedDeepHypoId === h.id ? 'bg-slate-50 border-[#4355FF] ring-4 ring-[#4355FF]' : 'border-white'}`}
+                >
+                  <div className="flex justify-between items-start mb-5 border-b border-slate-200 pb-4 w-full">
+                    <h3 className="text-[19px] font-black text-slate-900 leading-tight flex-1 mr-2">{h.title}</h3>
+                    <button 
+                      onClick={() => setSelectedDeepHypoId(h.id)}
+                      className={`px-6 py-2 text-white rounded-lg font-black text-[16px] transition-colors shadow-md shrink-0 ${selectedDeepHypoId === h.id ? 'bg-blue-800' : 'bg-[#4355FF] hover:bg-blue-700 shadow-blue-500/20'}`}
+                    >
+                      선택
+                    </button>
+                  </div>
+                  <div className="space-y-6">
+                    <div>
+                      <p className="text-[18px] font-bold text-orange-600 mb-2 uppercase tracking-wider">Step 1. 표면적 원인 대처</p>
+                      <p className="text-[17px] text-slate-900 font-light whitespace-pre-line text-justify">{h.step1}</p>
                     </div>
-                    <p className="text-slate-500 font-medium leading-[1.8] mb-8 text-[17px]">{h.description}</p>
-                    <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3 text-[15px]">EXPECTED OUTCOME</span>
-                      <p className="text-indigo-700 font-black leading-relaxed text-[17px]">{h.expectedOutcome}</p>
+                    <div className="pt-5 border-t border-slate-200/60">
+                      <p className="text-[18px] font-bold text-orange-600 mb-2 uppercase tracking-wider">Step 2. 맥락적 원인 재해석</p>
+                      <p className="text-[17px] text-slate-900 font-light whitespace-pre-line text-justify">{h.step2}</p>
+                    </div>
+                    <div className="pt-5 border-t border-slate-200/60">
+                      <p className="text-[18px] font-bold text-orange-600 mb-2 uppercase tracking-wider">Step 3. 맥락적 인사이트 제안</p>
+                      <p className="text-[17px] text-slate-900 font-light whitespace-pre-line text-justify">{h.step3}</p>
                     </div>
                   </div>
-                ))}
+                </div>
+              ))}
+            </div>
+            
+            <AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} />
+            
+            <div className="fixed bottom-0 left-0 right-0 p-6 bg-white/95 backdrop-blur-md border-t max-w-[430px] mx-auto z-40">
+              <button 
+                onClick={generateFinalReport}
+                disabled={selectedDeepHypoId === null} 
+                className={`w-full py-5 rounded-[1.2rem] font-black text-[17px] shadow-xl active:scale-95 transition-all flex justify-center items-center ${selectedDeepHypoId === null ? 'bg-slate-200 text-slate-400' : 'bg-slate-900 text-white'}`}
+              >
+                최종 통합 리포트 생성
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 7: Final Integrated Report */}
+        {step === 7 && finalBrief && (
+          <div className="pt-6 px-5 animate-fade-in pb-48">
+            <div className="space-y-5 mt-4">
+              <div className="bg-white p-7 rounded-[2rem] card-shadow border border-slate-100">
+                <h3 className="text-[18px] font-bold text-black mb-3 tracking-widest uppercase">{finalBrief.step1?.title}</h3>
+                <p className="text-[17px] text-black font-light leading-relaxed text-justify">{finalBrief.step1?.content}</p>
+              </div>
+              <div className="bg-white p-7 rounded-[2rem] card-shadow border border-slate-100 relative overflow-hidden">
+                <h3 className="text-[18px] font-bold text-black mb-3 tracking-widest uppercase">{finalBrief.step2?.title}</h3>
+                <p className="text-[18px] text-black font-light leading-relaxed text-justify pr-6">{finalBrief.step2?.content}</p>
+              </div>
+              <div className="bg-white p-7 rounded-[2rem] card-shadow border border-slate-100">
+                <h3 className="text-[18px] font-bold text-black mb-3 tracking-widest uppercase">{finalBrief.step3?.title}</h3>
+                <p className="text-[17px] text-black font-light leading-relaxed text-justify whitespace-pre-line">{finalBrief.step3?.content}</p>
+              </div>
+              
+              {/* 전략적 해결 방향: image_fb47db.png 스타일로 변경 (UX/DESIGN SUMMARY 스타일 라벨 적용) */}
+              <div className="bg-slate-900 p-8 rounded-[2rem] shadow-xl shadow-slate-900/20 relative overflow-hidden">
+                <div className="inline-block bg-indigo-600 px-4 py-1.5 rounded-full text-[13px] font-black tracking-widest uppercase text-white mb-5">
+                    전략적 해결 방향
+                </div>
+                <p className="text-[18px] text-white leading-relaxed font-medium text-justify whitespace-pre-line opacity-90 italic">
+                    "{finalBrief.step4?.content}"
+                </p>
               </div>
             </div>
             
             <AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} />
-            <button onClick={() => {
-              const content = `UX STRATEGY REPORT\n\n[INSIGHTS]\n${step4Result.strategicInsights.join('\n')}\n\n[HYPOTHESES]\n${step4Result.conceptHypotheses.map(h => `${h.title}: ${h.description}`).join('\n')}`;
-              const blob = new Blob([content], { type: 'text/plain' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a'); a.href = url; a.download = "UX_Strategy_Result.txt"; a.click();
-            }} className="w-full py-7 bg-slate-900 text-white rounded-[2rem] font-black text-xl shadow-2xl active:scale-95 transition-all flex items-center justify-center gap-3 mt-12">
-              <Download size={24} /> 최종 리포트 다운로드
-            </button>
+            
+            <div className="fixed bottom-0 left-0 right-0 p-6 bg-white/90 backdrop-blur-md max-w-[430px] mx-auto z-40 border-t border-slate-100">
+              <button 
+                onClick={copyFinalReport} 
+                className="w-full py-5 bg-slate-900 text-white rounded-[1.2rem] font-black text-[17px] shadow-xl flex items-center justify-center hover:bg-slate-800 transition-all active:scale-95"
+              >
+                전체 리포트 복사하기
+              </button>
+            </div>
           </div>
         )}
+
       </main>
 
       {/* Styles */}
@@ -751,15 +983,24 @@ Provide insights and hypotheses in JSON: {"strategicInsights": ["string"], "conc
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .animate-fade-in { animation: fade-in 0.6s ease-out forwards; }
-        * { font-size: 17px; }
-        .text-\[48px\] { font-size: 48px !important; }
+        .gradient-text { background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .card-shadow { box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05); }
+        * { font-size: 16px; }
+        .text-\[45px\] { font-size: 45px !important; }
         .text-\[42px\] { font-size: 42px !important; }
+        .text-\[40px\] { font-size: 40px !important; }
+        .text-\[28px\] { font-size: 28px !important; }
         .text-\[20px\] { font-size: 20px !important; }
-        .text-xs { font-size: 12px !important; }
-        .text-\[10px\] { font-size: 10px !important; }
-        .text-\[11px\] { font-size: 11px !important; }
+        .text-xs { font-size: 16px !important; }
+        .text-\[10px\] { font-size: 16px !important; }
+        .text-\[11px\] { font-size: 16px !important; }
+        .text-\[13px\] { font-size: 13px !important; }
+        .text-\[14px\] { font-size: 14px !important; }
         .text-\[15px\] { font-size: 15px !important; }
+        .text-\[16px\] { font-size: 16px !important; }
         .text-\[17px\] { font-size: 17px !important; }
+        .text-\[18px\] { font-size: 18px !important; }
+        .text-\[19px\] { font-size: 19px !important; }
       `}</style>
     </div>
   );
