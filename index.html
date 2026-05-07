@@ -42,9 +42,17 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
+        // React 렌더링 충돌 방지를 위해 안전하게 설계된 Icon 컴포넌트
         const Icon = ({ name, size = 24, className = "" }) => {
-            const iconName = name.replace(/([A-Z])/g, "-$1").toLowerCase().replace(/^-/, "");
-            return <i data-lucide={iconName} style={{ width: size, height: size }} className={`inline-block ${className}`}></i>;
+            const iconRef = useRef(null);
+            useEffect(() => {
+                if (iconRef.current && window.lucide) {
+                    const iconName = name.replace(/([A-Z])/g, "-$1").toLowerCase().replace(/^-/, "");
+                    iconRef.current.innerHTML = `<i data-lucide="${iconName}" class="${className}"></i>`;
+                    window.lucide.createIcons({ root: iconRef.current });
+                }
+            }, [name, size, className]);
+            return <span ref={iconRef} style={{ width: size, height: size, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}></span>;
         };
 
         const MODEL_NAME = "gemini-flash-latest"; 
@@ -103,18 +111,21 @@ Return ONLY a JSON object:
             </div>
         );
 
-        const Header = ({ step, setStep, step1Result, step2Result, selectedCategory, rootCauses, deepHypotheses, finalBrief, resetAll }) => {
+        const Header = ({ step, setStep, step1Result, step2Result, selectedCategory, rootCauses, deepHypotheses, finalBrief, copyToClipboard, resetAll }) => {
             const canGoForward = 
                 (step === 1 && step1Result) || 
                 (step === 2 && step2Result) || 
                 (step === 3 && selectedCategory) || 
-                (step === 5 && rootCauses.length > 0) ||
-                (step === 6 && deepHypotheses?.length > 0);
+                (step === 4 && true) ||
+                (step === 5 && rootCauses?.length > 0) ||
+                (step === 6 && deepHypotheses?.length > 0) ||
+                (step === 7 && finalBrief);
 
             const canGoBack = step > 0;
 
             const getDynamicTitle = () => {
                 if (step === 0) return "인증 및 시작";
+                if (step === 1) return "디자인 분석 엔진";
                 if (step === 2) return "전체 데이터 분석";
                 if (step === 3) return "UX/DESIGN 데이터 분석";
                 if (step === 4) return "5Whys 분석";
@@ -135,8 +146,17 @@ Return ONLY a JSON object:
                         <h1 className="font-bold text-[18px] text-slate-900 truncate leading-tight">{getDynamicTitle()}</h1>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
-                        {canGoForward && <button onClick={() => setStep(s => s + 1)} className="p-2 rounded-full hover:bg-slate-100 shrink-0"><Icon name="ChevronRight" size={24} className="text-slate-900" /></button>}
-                        <button onClick={resetAll} className="p-2 rounded-full hover:bg-slate-100 shrink-0"><Icon name="Home" size={20} className="text-slate-500" /></button>
+                        {(canGoForward || (step === 0 && step2Result)) && (
+                            <button onClick={() => setStep(s => s + 1)} className="p-2 rounded-full hover:bg-slate-100 shrink-0">
+                                <Icon name="ChevronRight" size={24} className="text-slate-900" />
+                            </button>
+                        )}
+                        <button onClick={copyToClipboard} className="p-2 rounded-full hover:bg-slate-100 shrink-0">
+                            <Icon name="Copy" size={20} className="text-slate-500" />
+                        </button>
+                        <button onClick={resetAll} className="p-2 rounded-full hover:bg-slate-100 shrink-0">
+                            <Icon name="Home" size={20} className="text-slate-500" />
+                        </button>
                     </div>
                 </header>
             );
@@ -163,10 +183,8 @@ Return ONLY a JSON object:
             const [finalBrief, setFinalBrief] = useState(null);
 
             const [qaInput, setQaInput] = useState("");
-            const [qaModal, setQaModal] = useState({ visible: false, question: "", answer: "" });
             const [opinionModal, setOpinionModal] = useState({ visible: false, title: "", opinions: [] });
 
-            useEffect(() => { if (window.lucide) window.lucide.createIcons(); });
             useEffect(() => { window.scrollTo({ top: 0, behavior: 'instant' }); }, [step]);
 
             const updateDataAndCount = (text) => {
@@ -302,6 +320,17 @@ Return ONLY a JSON object:
                 r.readAsText(f);
             };
 
+            const copyToClipboard = () => {
+                const text = document.getElementById('main-content')?.innerText || "";
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                alert("현재 화면의 내용이 복사되었습니다.");
+            };
+
             const resetAll = () => { setStep(1); setStep1Result(null); setStep2Result(null); setSelectedCategory(null); setRawData(""); setPerspective("사용 불편 관점"); };
 
             return (
@@ -325,7 +354,10 @@ Return ONLY a JSON object:
                             </div>
                         </div>
                     )}
-                    <main id="main-content" className="pt-14 pb-10">
+
+                    <Header step={step} setStep={setStep} step1Result={step1Result} step2Result={step2Result} selectedCategory={selectedCategory} rootCauses={rootCauses} deepHypotheses={deepHypotheses} finalBrief={finalBrief} copyToClipboard={copyToClipboard} resetAll={resetAll} />
+
+                    <main id="main-content" className="pt-14">
                         {step === 0 && (
                             <div className="min-h-screen flex flex-col items-center justify-center p-10 bg-white text-center animate-fade-in">
                                 <div className="w-24 h-24 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-[2rem] flex items-center justify-center mb-10 shadow-2xl">
@@ -387,7 +419,7 @@ Return ONLY a JSON object:
                                 </div>
                                 <div className="mt-8"><AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} /></div>
                                 <div className="fixed bottom-0 left-0 right-0 p-5 bg-white/95 backdrop-blur-md border-t max-w-[430px] mx-auto z-[60]">
-                                    <button onClick={handleStep2Analysis} className="w-full py-6 bg-slate-900 text-white rounded-2xl font-black text-lg active:scale-95 transition-all">2단계: UX/디자인 심화 분석 이동</button>
+                                    <button onClick={() => handleStep2Analysis()} className="w-full py-6 bg-slate-900 text-white rounded-2xl font-black text-lg active:scale-95 transition-all">2단계: UX/디자인 심화 분석 이동</button>
                                 </div>
                             </div>
                         )}
@@ -471,7 +503,7 @@ Return ONLY a JSON object:
                         )}
 
                         {step === 6 && deepHypotheses.length > 0 && (
-                            <div className="pt-6 px-5 animate-fade-in pb-64">
+                            <div className="pt-6 px-5 animate-fade-in pb-80">
                                 <div className="grid gap-5">
                                     {deepHypotheses.map(h => (
                                         <div key={h.id} className={`p-7 rounded-[2rem] border-2 transition-all card-shadow ${selectedDeepHypoId === h.id ? 'bg-slate-50 border-slate-700 ring-4 ring-slate-700' : 'bg-white border-slate-100'}`}>
