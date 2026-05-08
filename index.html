@@ -31,13 +31,12 @@
         };
 
         const MODEL_NAME = "gemini-flash-latest"; 
-        const SESSION_KEY = "gemini_api_key_ux_hub_integrated"; // 로컬 스토리지 키로 사용
-        const LOCAL_STORAGE_KEY = "ux_hub_analysis_state";
+        const SESSION_KEY = "gemini_api_key_ux_hub_integrated";
 
         const PROMPTS = {
-            STEP1: (data, note) => `Data: "${data}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n분석 요약(summary)은 한국어로 작성하십시오. 답변 내에 ** 강조 표시를 절대로 포함하지 마십시오.\n[중요1]: "EXECUTIVE SUMMARY"와 각 카테고리별 "summary"의 분석 내용은 반드시 각각 5줄에서 6줄 분량으로만 작성하십시오.\n[중요2]: "opinions" 배열에는 해당 카테고리의 요약 내용에 해당되는 실제 원문(Raw Data) 문장들만 단 하나도 누락 없이 100% 모두 포함해야 합니다. 절대로 번역하거나 요약, 변형하지 말고, 영어면 영어, 한국어면 한국어 등 원래 입력된 원문 문장 텍스트 '그대로' 추출하십시오.\n[중요3]: "count" 값은 반드시 "opinions" 배열에 추출된 원문 문장의 총 개수와 정확히 일치해야 합니다.\n[중요4]: 응답 속도 최적화를 위해 불필요한 텍스트 없이 오직 JSON 형식으로만 즉시 출력하십시오.\nProvide overall categorization and summary in JSON: {"summary": "EXECUTIVE SUMMARY (반드시 5~6줄 분량으로 작성)", "categories": [{"name": "카테고리명", "summary": "분석 내용 (반드시 5~6줄 분량으로 작성)", "count": "opinions 배열의 항목 개수와 반드시 동일한 숫자", "opinions": ["원문 그대로 1", "원문 그대로 2"]}]}`,
+            STEP1: (data, note) => `Data: "${data}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n분석 요약(summary)은 한국어로 작성하십시오. 답변 내에 ** 강조 표시를 절대로 포함하지 마십시오.\n[중요1]: "EXECUTIVE SUMMARY"와 각 카테고리별 "summary"의 분석 내용은 반드시 각각 4줄에서 5줄 분량으로만 작성하십시오.\n[중요2]: "opinions" 배열에는 해당 카테고리의 요약 내용에 해당되는 실제 원문(Raw Data) 문장들만 단 하나도 누락 없이 100% 모두 포함해야 합니다. 절대로 번역하거나 요약, 변형하지 말고, 영어면 영어, 한국어면 한국어 등 원래 입력된 원문 문장 텍스트 '그대로' 추출하십시오.\n[중요3]: "count" 값은 반드시 "opinions" 배열에 추출된 원문 문장의 총 개수와 정확히 일치해야 합니다.\n[중요4]: 분석 속도를 극대화하기 위해 불필요한 설명이나 수식어를 생략하고 오직 JSON 데이터만 즉시 출력하십시오.\nProvide overall categorization and summary in JSON: {"summary": "EXECUTIVE SUMMARY (반드시 4~5줄 분량으로 작성)", "categories": [{"name": "카테고리명", "summary": "분석 내용 (반드시 4~5줄 분량으로 작성)", "count": "opinions 배열의 항목 개수와 반드시 동일한 숫자", "opinions": ["원문 그대로 1", "원문 그대로 2"]}]}`,
             
-            STEP2: (data, note) => `Data: "${data}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n디자인 및 UX 측면에서 매우 정교하게 세분화된 카테고라이징을 수행하십시오. 분석 요약(summary)은 한국어로 작성하며 ** 강조 표시는 금지합니다.\n[중요1]: "UX/DESIGN SUMMARY" 및 각 이슈별 "summary" 분석 내용은 반드시 5줄에서 6줄 분량으로만 작성하십시오.\n[중요2]: "opinions" 배열에는 해당 카테고리의 요약 내용에 해당되는 실제 원문(Raw Data) 문장들만 단 하나도 누락 없이 100% 모두 포함해야 합니다. 절대로 번역하거나 요약, 변형하지 말고, 영어면 영어, 한국어면 한국어 등 원래 입력된 원문 문장 텍스트 '그대로' 추출하십시오.\n[중요3]: "count" 값은 반드시 "opinions" 배열에 추출된 원문 문장의 총 개수와 정확히 일치해야 합니다.\n[중요4]: 응답 속도 최적화를 위해 불필요한 텍스트 없이 오직 JSON 형식으로만 즉시 출력하십시오.\nProvide JSON: {"summary": "UX/DESIGN SUMMARY (반드시 5~6줄 분량으로 작성)", "uxCategories": [{"name": "이슈명", "summary": "분석 내용 (반드시 5~6줄 분량으로 작성)", "count": "opinions 배열의 항목 개수와 반드시 동일한 숫자", "opinions": ["원문 그대로 1", "원문 그대로 2"]}]}`,
+            STEP2: (data, note) => `Data: "${data}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n디자인 및 UX 측면에서 매우 정교하게 세분화된 카테고라이징을 수행하십시오. 분석 요약(summary)은 한국어로 작성하며 ** 강조 표시는 금지합니다.\n[중요1]: "UX/DESIGN SUMMARY" 및 각 이슈별 "summary" 분석 내용은 반드시 4줄에서 5줄 분량으로만 작성하십시오.\n[중요2]: "opinions" 배열에는 해당 카테고리의 요약 내용에 해당되는 실제 원문(Raw Data) 문장들만 단 하나도 누락 없이 100% 모두 포함해야 합니다. 절대로 번역하거나 요약, 변형하지 말고, 영어면 영어, 한국어면 한국어 등 원래 입력된 원문 문장 텍스트 '그대로' 추출하십시오.\n[중요3]: "count" 값은 반드시 "opinions" 배열에 추출된 원문 문장의 총 개수와 정확히 일치해야 합니다.\n[중요4]: 분석 속도를 극대화하기 위해 불필요한 설명이나 수식어를 생략하고 오직 JSON 데이터만 즉시 출력하십시오.\nProvide JSON: {"summary": "UX/DESIGN SUMMARY (반드시 4~5줄 분량으로 작성)", "uxCategories": [{"name": "이슈명", "summary": "분석 내용 (반드시 4~5줄 분량으로 작성)", "count": "opinions 배열의 항목 개수와 반드시 동일한 숫자", "opinions": ["원문 그대로 1", "원문 그대로 2"]}]}`,
 
             ANALYSIS: (perspective, input, note) => `You are a Senior Root Cause Analyst. Strictly lens: [${perspective}]. \n${note ? `[Revision Request]: ${note}` : ""}\nDerivate 3 to 6 distinct 5Why chains. Format: Why [N]\\n왜 [질문]?\\n→ [답변]\\n핵심: [요약].\n[중요]: 응답 속도 최적화를 위해 불필요한 텍스트 없이 오직 JSON 형식으로만 즉시 출력하십시오.\nReturn ONLY a JSON: { "rootCauses": [ { "id": 1, "chain": ["Why 1\\\\n왜...\\\\n→...\\\\n핵심:...","Why 2...","Why 3...","Why 4...","Why 5..."], "realCause": "..." } ] }`,
             
@@ -61,7 +60,6 @@
         );
 
         const Header = ({ step, setStep, copyAccumulatedContent, resetAll, apiKey, step1Result, step2Result, selectedCategory, rootCauses, deepHypotheses, finalBrief }) => {
-            // 자유로운 단계 이동을 위한 로직 강화
             const canGoForward = 
                 (step === 0 && apiKey) ||
                 (step === 1 && step1Result) || 
@@ -113,7 +111,6 @@
         };
 
         const App = () => {
-            // 브라우저 세션 초기화 방지를 위해 apiKey를 localStorage에서 관리
             const [apiKey, setApiKey] = useState(localStorage.getItem(SESSION_KEY) || "");
             const [step, setStep] = useState(apiKey ? 1 : 0);
             const [rawData, setRawData] = useState("");
@@ -142,53 +139,6 @@
                 }, 50);
             }, [step]);
 
-            // 브라우저를 껐다 켜도 데이터가 유지되는 로컬 스토리지 영구 자동 저장 기능
-            useEffect(() => {
-                if (step >= 1 || rawData) {
-                    const stateToSave = {
-                        step, rawData, step1Result, step2Result, selectedCategory, deepDiveInput, perspective, rootCauses, selectedCauseId, deepHypotheses, selectedDeepHypoId, finalBrief
-                    };
-                    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stateToSave));
-                }
-            }, [step, rawData, step1Result, step2Result, selectedCategory, deepDiveInput, perspective, rootCauses, selectedCauseId, deepHypotheses, selectedDeepHypoId, finalBrief]);
-
-            const loadSavedState = () => {
-                const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
-                const savedApiKey = localStorage.getItem(SESSION_KEY);
-                
-                if(!savedApiKey) {
-                    alert("API 키 인증이 초기화 되었습니다. 첫 화면에서 다시 인증해 주세요.");
-                    setStep(0);
-                    return;
-                }
-                
-                if (saved) {
-                    try {
-                        const parsed = JSON.parse(saved);
-                        if(parsed.step >= 1 || parsed.rawData) {
-                            setRawData(parsed.rawData || "");
-                            setStep1Result(parsed.step1Result || null);
-                            setStep2Result(parsed.step2Result || null);
-                            setSelectedCategory(parsed.selectedCategory || null);
-                            setDeepDiveInput(parsed.deepDiveInput || "");
-                            setPerspective(parsed.perspective || "사용 불편 관점");
-                            setRootCauses(parsed.rootCauses || []);
-                            setSelectedCauseId(parsed.selectedCauseId || null);
-                            setDeepHypotheses(parsed.deepHypotheses || []);
-                            setSelectedDeepHypoId(parsed.selectedDeepHypoId || null);
-                            setFinalBrief(parsed.finalBrief || null);
-                            setStep(parsed.step || 1);
-                        } else {
-                            alert("불러올 수 있는 유효한 분석 데이터가 없습니다.");
-                        }
-                    } catch(e) {
-                        alert("저장된 데이터를 불러오는 중 오류가 발생했습니다.");
-                    }
-                } else {
-                    alert("기존에 저장된 분석 내용이 없습니다.");
-                }
-            };
-
             const updateDataAndCount = (text) => {
                 setRawData(text);
                 setItemCount(text.split('\n').filter(line => line.trim().length > 0).length);
@@ -196,7 +146,7 @@
 
             const callGemini = async (prompt, isJson = true, systemInstruction = null) => {
                 setIsAnalyzing(true);
-                let delay = 500; // 속도 개선을 위해 재시도 딜레이 감소
+                let delay = 500; 
                 for (let i = 0; i < 5; i++) {
                     try {
                         const payload = {
@@ -231,7 +181,6 @@
                         body: JSON.stringify({ contents: [{ parts: [{ text: "OK" }] }] })
                     });
                     if (response.ok) {
-                        // 세션 종료 후에도 유지되도록 localStorage에 영구 저장
                         setApiKey(inputKey); localStorage.setItem(SESSION_KEY, inputKey); setStep(1); setError(null);
                     } else throw new Error();
                 } catch { setError("API 인증 실패. 키를 확인해 주세요."); }
@@ -397,7 +346,7 @@
                 }
             };
 
-            const resetAll = () => { setStep(1); setStep1Result(null); setStep2Result(null); setSelectedCategory(null); setRawData(""); setPerspective("사용 불편 관점"); localStorage.removeItem(LOCAL_STORAGE_KEY); };
+            const resetAll = () => { setStep(1); setStep1Result(null); setStep2Result(null); setSelectedCategory(null); setRawData(""); setPerspective("사용 불편 관점"); };
 
             return (
                 <div className="w-full max-w-[430px] mx-auto bg-[#f8fafc] min-h-screen relative font-sans text-slate-900 pb-10 shadow-[0_0_60px_rgba(0,0,0,0.05)]">
@@ -463,10 +412,6 @@
                                             <label htmlFor="file-up" className="flex-1 bg-white/10 hover:bg-white/15 py-4 rounded-[1.2rem] text-center font-bold cursor-pointer flex items-center justify-center transition-colors border border-white/5 text-[16px]">파일 업로드</label>
                                             <button onClick={() => handleStep1Analysis()} disabled={!rawData.trim()} className="flex-1 bg-blue-600 disabled:bg-slate-700 text-white rounded-[1.2rem] font-black shadow-lg shadow-blue-600/30 active:scale-95 transition-all py-4 text-[16px]">분석 시작</button>
                                         </div>
-                                        <button onClick={loadSavedState} className="w-full mt-3 py-4 bg-white/5 hover:bg-white/10 text-slate-300 rounded-[1.2rem] font-bold transition-colors border border-white/10 text-[16px] flex items-center justify-center gap-2">
-                                            <Icon name="History" size={18} />
-                                            기존 분석 내용 불러오기
-                                        </button>
                                     </div>
                                 </div>
                             </div>
