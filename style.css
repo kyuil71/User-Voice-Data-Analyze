@@ -1,0 +1,74 @@
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+
+:root {
+    --primary-gradient: linear-gradient(135deg, #4355FF 0%, #6366F1 100%);
+    --accent-gradient: linear-gradient(135deg, #F97316 0%, #EA580C 100%);
+    --glass-bg: rgba(255, 255, 255, 0.75);
+    --glass-border: rgba(255, 255, 255, 0.4);
+}
+
+body { 
+    font-family: 'Pretendard', sans-serif; 
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: #F8FAFC;
+}
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* 세련된 페이드 인 애니메이션 */
+@keyframes fadeInUp { 
+    from { opacity: 0; transform: translateY(15px); } 
+    to { opacity: 1; transform: translateY(0); } 
+}
+.animate-fade-in { animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+/* 부유하는 듯한 플로팅 애니메이션 */
+@keyframes float {
+    0% { transform: translateY(0px); }
+    50% { transform: translateY(-8px); }
+    100% { transform: translateY(0px); }
+}
+.animate-float { animation: float 4s ease-in-out infinite; }
+
+/* 그라데이션 텍스트 처리 */
+.gradient-text { 
+    background: var(--accent-gradient); 
+    -webkit-background-clip: text; 
+    -webkit-text-fill-color: transparent; 
+}
+.gradient-text-primary {
+    background: var(--primary-gradient); 
+    -webkit-background-clip: text; 
+    -webkit-text-fill-color: transparent; 
+}
+
+/* 깊고 부드러운 그림자 (Premium Shadow) */
+.card-shadow { 
+    box-shadow: 0 10px 40px -10px rgba(15, 23, 42, 0.08); 
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.card-shadow:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 15px 50px -10px rgba(15, 23, 42, 0.12);
+}
+
+/* 글래스모피즘 UI 패널 */
+.glass-panel {
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+}
+
+/* Global font size constraints (기존 유지) */
+* { font-size: 16px; }
+.text-45px { font-size: 45px !important; }
+.text-42px { font-size: 42px !important; }
+.text-40px { font-size: 40px !important; }
+.text-28px { font-size: 28px !important; }
+.text-20px { font-size: 20px !important; }
+.text-19px { font-size: 19px !important; }
+.text-18px { font-size: 18px !important; }
+.text-17px { font-size: 17px !important; }
