@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>User Voice Analyze & Design Insight</title>
+    <title>User Voice Analysis & Design Insight</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -32,9 +32,10 @@
 
         const MODEL_NAME = "gemini-flash-latest"; 
         const SESSION_KEY = "gemini_api_key_ux_hub_integrated";
+        const LOCAL_STORAGE_KEY = "ux_hub_analysis_state";
 
         const PROMPTS = {
-            STEP1: (data, note) => `Data: "${data}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n분석 요약(summary)은 한국어로 작성하십시오. 답변 내에 ** 강조 표시를 절대로 포함하지 마십시오.\n[중요1]: 각 카테고리별 "summary" 분석 내용의 양을 기존보다 50% 더 늘려서 아주 상세하고 논리적인 근거를 포함하여 풍부하게 기술하십시오.\n[중요2]: "opinions" 배열에는 해당 카테고리의 요약 내용에 해당되는 실제 원문(Raw Data) 문장들만 단 하나도 누락 없이 100% 모두 포함해야 합니다. 절대로 번역하거나 요약, 변형하지 말고, 영어면 영어, 한국어면 한국어 등 원래 입력된 원문 문장 텍스트 '그대로' 추출하십시오.\n[중요3]: "count" 값은 반드시 "opinions" 배열에 추출된 원문 문장의 총 개수와 정확히 일치해야 합니다.\nProvide overall categorization and summary in JSON: {"summary": "EXECUTIVE SUMMARY (상세히 작성)", "categories": [{"name": "카테고리명", "summary": "상세 분석 내용 (기존보다 50% 분량 증가)", "count": "opinions 배열의 항목 개수와 반드시 동일한 숫자", "opinions": ["원문 그대로 1", "원문 그대로 2"]}]}`,
+            STEP1: (data, note) => `Data: "${data}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n분석 요약(summary)은 한국어로 작성하십시오. 답변 내에 ** 강조 표시를 절대로 포함하지 마십시오.\n[중요1]: 각 카테고리별 "summary" 및 전체 요약 분석 내용의 양을 기존 대비 20% 줄여서 핵심만 간결하고 명확하게 기술하십시오.\n[중요2]: "opinions" 배열에는 해당 카테고리의 요약 내용에 해당되는 실제 원문(Raw Data) 문장들만 단 하나도 누락 없이 100% 모두 포함해야 합니다. 절대로 번역하거나 요약, 변형하지 말고, 영어면 영어, 한국어면 한국어 등 원래 입력된 원문 문장 텍스트 '그대로' 추출하십시오.\n[중요3]: "count" 값은 반드시 "opinions" 배열에 추출된 원문 문장의 총 개수와 정확히 일치해야 합니다.\nProvide overall categorization and summary in JSON: {"summary": "EXECUTIVE SUMMARY (간결하고 명확하게 작성)", "categories": [{"name": "카테고리명", "summary": "분석 내용 (기존 대비 20% 축소)", "count": "opinions 배열의 항목 개수와 반드시 동일한 숫자", "opinions": ["원문 그대로 1", "원문 그대로 2"]}]}`,
             
             STEP2: (data, note) => `Data: "${data}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n디자인 및 UX 측면에서 매우 정교하게 세분화된 카테고라이징을 수행하십시오. 분석 요약(summary)은 한국어로 작성하며 ** 강조 표시는 금지합니다.\n[중요1]: 각 이슈별 "summary" 분석 내용의 양을 기존보다 50% 더 늘려서 전문적이고 깊이 있게 기술하십시오.\n[중요2]: "opinions" 배열에는 해당 카테고리의 요약 내용에 해당되는 실제 원문(Raw Data) 문장들만 단 하나도 누락 없이 100% 모두 포함해야 합니다. 절대로 번역하거나 요약, 변형하지 말고, 영어면 영어, 한국어면 한국어 등 원래 입력된 원문 문장 텍스트 '그대로' 추출하십시오.\n[중요3]: "count" 값은 반드시 "opinions" 배열에 추출된 원문 문장의 총 개수와 정확히 일치해야 합니다.\nProvide JSON: {"summary": "UX/DESIGN SUMMARY", "uxCategories": [{"name": "이슈명", "summary": "상세 분석 내용 (기존보다 50% 분량 증가)", "count": "opinions 배열의 항목 개수와 반드시 동일한 숫자", "opinions": ["원문 그대로 1", "원문 그대로 2"]}]}`,
 
@@ -133,7 +134,51 @@
             const [qaInput, setQaInput] = useState("");
             const [opinionModal, setOpinionModal] = useState({ visible: false, title: "", opinions: [] });
 
-            useEffect(() => { window.scrollTo({ top: 0, behavior: 'smooth' }); }, [step]);
+            // 단계 이동 시 무조건 최상단으로 스크롤 고정
+            useEffect(() => { 
+                setTimeout(() => {
+                    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+                }, 50);
+            }, [step]);
+
+            // 로컬 스토리지에 진행 상황 자동 저장
+            useEffect(() => {
+                if (step >= 1) {
+                    const stateToSave = {
+                        step, rawData, step1Result, step2Result, selectedCategory, deepDiveInput, perspective, rootCauses, selectedCauseId, deepHypotheses, selectedDeepHypoId, finalBrief
+                    };
+                    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stateToSave));
+                }
+            }, [step, rawData, step1Result, step2Result, selectedCategory, deepDiveInput, perspective, rootCauses, selectedCauseId, deepHypotheses, selectedDeepHypoId, finalBrief]);
+
+            const loadSavedState = () => {
+                const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+                if (saved) {
+                    try {
+                        const parsed = JSON.parse(saved);
+                        if(parsed.step > 1) {
+                            setRawData(parsed.rawData || "");
+                            setStep1Result(parsed.step1Result || null);
+                            setStep2Result(parsed.step2Result || null);
+                            setSelectedCategory(parsed.selectedCategory || null);
+                            setDeepDiveInput(parsed.deepDiveInput || "");
+                            setPerspective(parsed.perspective || "사용 불편 관점");
+                            setRootCauses(parsed.rootCauses || []);
+                            setSelectedCauseId(parsed.selectedCauseId || null);
+                            setDeepHypotheses(parsed.deepHypotheses || []);
+                            setSelectedDeepHypoId(parsed.selectedDeepHypoId || null);
+                            setFinalBrief(parsed.finalBrief || null);
+                            setStep(parsed.step || 1);
+                        } else {
+                            alert("불러올 수 있는 유효한 분석 데이터가 없습니다.");
+                        }
+                    } catch(e) {
+                        alert("저장된 데이터를 불러오는 중 오류가 발생했습니다.");
+                    }
+                } else {
+                    alert("기존에 저장된 분석 내용이 없습니다.");
+                }
+            };
 
             const updateDataAndCount = (text) => {
                 setRawData(text);
@@ -342,7 +387,7 @@
                 }
             };
 
-            const resetAll = () => { setStep(1); setStep1Result(null); setStep2Result(null); setSelectedCategory(null); setRawData(""); setPerspective("사용 불편 관점"); };
+            const resetAll = () => { setStep(1); setStep1Result(null); setStep2Result(null); setSelectedCategory(null); setRawData(""); setPerspective("사용 불편 관점"); localStorage.removeItem(LOCAL_STORAGE_KEY); };
 
             return (
                 <div className="w-full max-w-[430px] mx-auto bg-[#f8fafc] min-h-screen relative font-sans text-slate-900 pb-10 shadow-[0_0_60px_rgba(0,0,0,0.05)]">
@@ -377,8 +422,8 @@
                                     <Icon name="Fingerprint" size={48} className="text-white" />
                                 </div>
                                 <div className="w-full mb-2 px-2">
-                                    <h1 className="font-black tracking-tighter gradient-text-primary leading-[1.1] text-45px">User Voice Analyze</h1>
-                                    <h1 className="font-black tracking-tighter gradient-text-primary leading-[1.1] mb-8 text-45px">& Design Insight</h1>
+                                    <h1 className="font-black tracking-tighter gradient-text-primary leading-[1.2] pb-1 text-45px">User Voice Analysis</h1>
+                                    <h1 className="font-black tracking-tighter gradient-text-primary leading-[1.2] pb-2 mb-6 text-45px">& Design Insight</h1>
                                 </div>
                                 <p className="text-slate-400 font-medium mb-12 text-[16px]">데이터 분석에서 디자인 인사이트 도출까지</p>
                                 <div className="w-full space-y-5">
@@ -405,10 +450,15 @@
                                         <textarea rows={5} value={rawData} onChange={(e) => updateDataAndCount(e.target.value)} className="w-full bg-slate-800/50 backdrop-blur-md border border-white/10 focus:border-blue-400/50 rounded-[2rem] p-7 text-white outline-none text-[17px] resize-none leading-relaxed transition-colors shadow-inner" placeholder="수집한 User Voice 데이터를 입력하거나 업로드 하세요" />
                                         <div className="flex gap-3 mt-10">
                                             <input type="file" id="file-up" className="hidden" onChange={handleFileUpload} />
-                                            {/* 버튼 사이즈 100% 확대 (py-9 적용) */}
-                                            <label htmlFor="file-up" className="flex-1 bg-white/10 hover:bg-white/15 py-9 rounded-[1.2rem] text-center font-bold cursor-pointer flex items-center justify-center transition-colors border border-white/5 text-[18px]">파일 업로드</label>
-                                            <button onClick={() => handleStep1Analysis()} disabled={!rawData.trim()} className="flex-1 bg-blue-600 disabled:bg-slate-700 text-white rounded-[1.2rem] font-black shadow-lg shadow-blue-600/30 active:scale-95 transition-all py-9 text-[18px]">분석 시작</button>
+                                            {/* 버튼 사이즈 30% 축소 (py-9 -> py-6) */}
+                                            <label htmlFor="file-up" className="flex-1 bg-white/10 hover:bg-white/15 py-6 rounded-[1.2rem] text-center font-bold cursor-pointer flex items-center justify-center transition-colors border border-white/5 text-[17px]">파일 업로드</label>
+                                            <button onClick={() => handleStep1Analysis()} disabled={!rawData.trim()} className="flex-1 bg-blue-600 disabled:bg-slate-700 text-white rounded-[1.2rem] font-black shadow-lg shadow-blue-600/30 active:scale-95 transition-all py-6 text-[17px]">분석 시작</button>
                                         </div>
+                                        {/* 기존 데이터 불러오기 버튼 추가 */}
+                                        <button onClick={loadSavedState} className="w-full mt-3 py-4 bg-white/5 hover:bg-white/10 text-slate-300 rounded-[1.2rem] font-bold transition-colors border border-white/10 text-[16px] flex items-center justify-center gap-2">
+                                            <Icon name="History" size={18} />
+                                            기존 분석 내용 불러오기
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -448,7 +498,6 @@
                                 </div>
                                 <div className="space-y-5 mb-12">
                                     {step2Result.uxCategories.map((cat, i) => (
-                                        // 선택된 박스의 테두리를 확연하게 두껍게 (border-[3px]) 처리
                                         <div key={i} className={`p-7 rounded-[2.5rem] transition-all duration-300 card-shadow bg-white ${selectedCategory?.name === cat.name ? 'border-[3px] border-indigo-500 ring-4 ring-indigo-500/10' : 'border border-slate-100/60 hover:border-slate-300'}`}>
                                             <div className="flex justify-between items-start mb-5">
                                                 <h3 className="font-black text-20px flex-1 text-slate-800 leading-tight pr-2">{cat.name}</h3>
@@ -488,19 +537,25 @@
                             <div className="pt-8 px-5 animate-fade-in pb-64">
                                 <div className="space-y-6">
                                     {rootCauses.map((rc) => (
-                                        // 선택된 박스의 테두리를 확연하게 두껍게 (border-[3px]) 처리
                                         <div key={rc.id} className={`p-7 rounded-[2rem] transition-all duration-300 card-shadow ${selectedCauseId === rc.id ? 'bg-white border-[3px] border-orange-500 ring-4 ring-orange-500/10' : 'bg-white border border-slate-100/60 hover:border-slate-300'}`}>
                                             <div className="flex justify-between items-center mb-6">
                                                 <span className="bg-orange-50 text-orange-600 border border-orange-200/50 px-4 py-1.5 rounded-full font-bold text-[14px]">Case {rc.id}</span>
                                                 <button onClick={() => setSelectedCauseId(rc.id)} className={`px-6 py-2 rounded-xl font-black transition-all shadow-md active:scale-95 text-[15px] ${selectedCauseId === rc.id ? 'bg-orange-500 text-white shadow-orange-500/30' : 'bg-slate-900 text-white hover:bg-slate-800'}`}>원인 선택</button>
                                             </div>
-                                            {/* 왼쪽 선 삭제 및 패딩 동일하게 조정 */}
+                                            {/* 왼쪽 선 삭제, 패딩 조정, 정규식을 통한 완벽한 개행 처리 및 폰트 굵기 조절 */}
                                             <div className="space-y-4 mb-8 text-slate-700 text-justify">
-                                                {rc.chain?.map((cStep, idx) => (
-                                                    <p key={idx} className="whitespace-pre-line text-[16px] leading-relaxed">
-                                                        {cStep.split('\n').map((line, lidx) => (<span key={lidx} className={line.startsWith('Why') ? 'font-black text-slate-900 block mb-1' : 'block font-light text-slate-600'}>{line}</span>))}
-                                                    </p>
-                                                ))}
+                                                {rc.chain?.map((cStep, idx) => {
+                                                    const lines = cStep.split(/\\n|₩n|\n/);
+                                                    return (
+                                                        <div key={idx} className="mb-4">
+                                                            {lines.map((line, lidx) => (
+                                                                <span key={lidx} className={lidx === 0 ? 'font-black text-slate-900 block mb-1 text-[17px]' : 'block font-normal text-slate-600 leading-relaxed text-[16px]'}>
+                                                                    {line}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
                                             <div className="pt-6 border-t border-slate-100">
                                                 <div className="inline-block bg-orange-100 text-orange-600 px-3 py-1 rounded-md text-[12px] font-black uppercase tracking-widest mb-3">Real Cause</div>
@@ -525,7 +580,6 @@
                             <div className="pt-8 px-5 animate-fade-in pb-80">
                                 <div className="grid gap-6">
                                     {deepHypotheses.map(h => (
-                                        // 선택된 박스의 테두리를 확연하게 두껍게 (border-[3px]) 처리
                                         <div key={h.id} className={`p-8 rounded-[2.5rem] transition-all duration-300 card-shadow ${selectedDeepHypoId === h.id ? 'bg-white border-[3px] border-indigo-500 ring-4 ring-indigo-500/10' : 'bg-white border border-slate-100/60 hover:border-slate-300'}`}>
                                             {/* 버튼을 제목 위로 이동 */}
                                             <div className="flex flex-col mb-6 border-b border-slate-100 pb-5">
@@ -538,7 +592,7 @@
                                                 {[{t:'Step 1. 표면적 원인 대처', c:h.step1}, {t:'Step 2. 맥락적 원인 재해석', c:h.step2}, {t:'Step 3. 맥락적 인사이트 제안', c:h.step3}].map((item, idx) => (
                                                     <div key={idx} className="relative">
                                                         <div className="absolute left-0 top-2 w-1.5 h-1.5 rounded-full bg-orange-400"></div>
-                                                        {/* Step 제목 글씨 크기 10% 확대 (기존 15px -> 17px 수준) */}
+                                                        {/* 폰트 크기 10% 확대 */}
                                                         <p className="text-[17px] font-bold text-slate-800 mb-2 pl-4 tracking-wide">{item.t}</p>
                                                         <p className="text-[17px] text-slate-600 font-light text-justify leading-relaxed whitespace-pre-line pl-4">{item.c}</p>
                                                     </div>
@@ -585,15 +639,16 @@
                         )}
                     </main>
 
-                    {/* Step Result Modal (원문 보기) - 복사 버그 완전 해결본 */}
+                    {/* Step Result Modal (원문 보기) - 복사 및 닫기 버튼 터치 영역 대폭 확장 */}
                     {opinionModal.visible && (
                         <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-slate-900/60 p-5 backdrop-blur-sm animate-fade-in">
                             <div className="bg-white text-slate-800 p-8 rounded-[2.5rem] w-full max-w-[390px] shadow-2xl relative border border-slate-100 overflow-hidden flex flex-col max-h-[85vh]">
-                                <div className="absolute top-6 right-6 flex items-center gap-2 z-10">
-                                    <button onClick={() => copyRawDataModal(opinionModal.opinions.join('\n'))} className="p-2.5 text-blue-500 hover:bg-blue-50 hover:text-blue-600 rounded-full transition-colors" title="텍스트 복사"><Icon name="Copy" size={22} /></button>
-                                    <button onClick={() => setOpinionModal({ visible: false, title: "", opinions: [] })} className="p-2.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-full transition-colors"><Icon name="X" size={24} /></button>
+                                {/* 닫기/복사 아이콘 영역의 히트박스를 w-12 h-12로 넓혀 터치 불량 해결 */}
+                                <div className="absolute top-4 right-4 flex items-center z-10">
+                                    <button onClick={() => copyRawDataModal(opinionModal.opinions.join('\n'))} className="w-12 h-12 flex items-center justify-center text-blue-500 hover:bg-blue-50 hover:text-blue-600 rounded-full transition-colors" title="텍스트 복사"><Icon name="Copy" size={24} /></button>
+                                    <button onClick={() => setOpinionModal({ visible: false, title: "", opinions: [] })} className="w-12 h-12 flex items-center justify-center text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-full transition-colors ml-1"><Icon name="X" size={26} /></button>
                                 </div>
-                                <div className="mb-6 pr-16 relative z-10">
+                                <div className="mb-6 pr-20 relative z-10 mt-2">
                                     <div className="flex items-center gap-2 mb-3"><Icon name="Quote" className="text-blue-500 w-5 h-5" /><span className="text-[13px] font-black text-blue-500 uppercase tracking-widest">Raw Data</span></div>
                                     <h4 className="text-[20px] font-black text-slate-900 leading-tight">"{opinionModal.title}"</h4>
                                 </div>
