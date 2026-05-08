@@ -32,7 +32,7 @@
 
         const MODEL_NAME = "gemini-flash-latest"; 
         const SESSION_KEY = "gemini_api_key_ux_hub_integrated";
-        const LOCAL_STORAGE_KEY = "ux_hub_analysis_state_final"; // 키 변경으로 충돌 방지
+        const LOCAL_STORAGE_KEY = "ux_hub_analysis_state_final";
 
         const PROMPTS = {
             STEP1: (data, note) => `Data: "${data}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n분석 요약(summary)은 한국어로 작성하십시오. 답변 내에 ** 강조 표시를 절대로 포함하지 마십시오.\n[중요1]: "EXECUTIVE SUMMARY"와 각 카테고리별 "summary"의 분석 내용은 반드시 각각 4줄에서 5줄 분량으로만 작성하십시오.\n[중요2]: "opinions" 배열에는 해당 카테고리의 요약 내용에 해당되는 실제 원문(Raw Data) 문장들만 단 하나도 누락 없이 100% 모두 포함해야 합니다. 절대로 번역하거나 요약, 변형하지 말고, 원래 입력된 원문 문장 텍스트 '그대로' 추출하십시오.\n[중요3]: "count" 값은 반드시 "opinions" 배열에 추출된 원문 문장의 총 개수와 정확히 일치해야 합니다.\n[중요4]: 분석 속도를 극대화하기 위해 불필요한 설명이나 수식어를 생략하고 오직 JSON 데이터만 즉시 출력하십시오.\nProvide JSON: {"summary": "EXECUTIVE SUMMARY", "categories": [{"name": "카테고리명", "summary": "분석 내용", "count": 0, "opinions": []}]}`,
@@ -114,14 +114,13 @@
             const [qaInput, setQaInput] = useState("");
             const [opinionModal, setOpinionModal] = useState({ visible: false, title: "", opinions: [] });
 
-            // 강제 저장 함수: 상태 변경 즉시 로컬 스토리지에 기록
             const forceSave = (override = {}) => {
                 const currentState = {
                     step, rawData, step1Result, step2Result, selectedCategory, deepDiveInput, perspective, rootCauses, selectedCauseId, deepHypotheses, selectedDeepHypoId, finalBrief, ...override
                 };
                 try {
                     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(currentState));
-                } catch(e) { console.warn("Save failed: Storage limit exceeded"); }
+                } catch(e) { console.warn("Save failed"); }
             };
 
             const loadSavedState = () => {
@@ -147,11 +146,43 @@
 
             useEffect(() => { setTimeout(() => window.scrollTo(0,0), 50); }, [step]);
 
+            // 데이터 정제 로직: 알림 여부를 분리하여 타이핑 중 경고창 무한 반복 현상 방지
+            const processAndLimitData = (text, showWarning = false) => {
+                const lines = text.split('\n').filter(line => line.trim().length > 0);
+                if (lines.length > 500) {
+                    if (showWarning) alert(`입력된 데이터가 500개를 초과하여 상위 500개만 분석을 진행합니다.`);
+                    const limitedLines = lines.slice(0, 500);
+                    return { finalData: limitedLines.join('\n'), count: 500 };
+                }
+                return { finalData: lines.join('\n'), count: lines.length };
+            };
+
             const updateDataAndCount = (text) => {
-                const lines = text.split('\n').filter(line => line.trim().length > 0).slice(0, 500);
-                setRawData(lines.join('\n'));
-                setItemCount(lines.length);
-                forceSave({ rawData: lines.join('\n'), step: 1 });
+                const { finalData, count } = processAndLimitData(text, false); // 타이핑 시 경고창 띄우지 않음
+                setRawData(finalData);
+                setItemCount(count);
+                forceSave({ rawData: finalData, step: 1 });
+            };
+
+            const handleFileUpload = (e) => {
+                const f = e.target.files[0];
+                if (!f) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    try {
+                        const data = new Uint8Array(ev.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                        const json = XLSX.utils.sheet_to_json(worksheet, {header: 1});
+                        const text = json.map(row => row.join(' ')).join('\n');
+                        const { finalData, count } = processAndLimitData(text, true); // 파일 업로드 시에만 경고창 노출
+                        setRawData(finalData);
+                        setItemCount(count);
+                        forceSave({ rawData: finalData, step: 1 });
+                    } catch(err) { alert("파일 처리 중 오류 발생"); }
+                };
+                reader.readAsArrayBuffer(f);
+                e.target.value = null; // 동일한 파일 재업로드 버그 방지
             };
 
             const callGemini = async (prompt, isJson = true, systemInstruction = null) => {
@@ -266,19 +297,20 @@
                     .then(res => { if(res && res.finalReport) { setFinalBrief(res.finalReport); setStep(7); forceSave({ finalBrief: res.finalReport, selectedDeepHypoId: id, step: 7 }); } });
             };
 
-            const handleFileUpload = (e) => {
-                const f = e.target.files[0];
-                if (!f) return;
-                const reader = new FileReader();
-                reader.onload = (ev) => {
-                    const data = new Uint8Array(ev.target.result);
-                    const workbook = XLSX.read(data, { type: 'array' });
-                    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-                    const json = XLSX.utils.sheet_to_json(worksheet, {header: 1});
-                    const text = json.map(row => row.join(' ')).join('\n');
-                    updateDataAndCount(text);
-                };
-                reader.readAsArrayBuffer(f);
+            // 완벽한 복사를 위한 Fallback 로직 추가 (로컬 파일 실행 시 대응)
+            const fallbackCopyTextToClipboard = (text, successMsg) => {
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    alert(successMsg);
+                } catch (err) {
+                    alert("복사에 실패했습니다. 브라우저 설정을 확인해 주세요.");
+                }
+                document.body.removeChild(textArea);
             };
 
             const copyAccumulatedContent = () => {
@@ -307,10 +339,21 @@
                 if (step === 7 && finalBrief) {
                     text += `--- 최종 통합 리포트 ---\n[${finalBrief.step1.title}]\n${finalBrief.step1.content}\n\n[${finalBrief.step2.title}]\n${finalBrief.step2.content}\n\n[${finalBrief.step3.title}]\n${finalBrief.step3.content}\n\n[전략적 해결 방향]\n${finalBrief.step4.content}\n\n`;
                 }
-                navigator.clipboard.writeText(text).then(() => alert("전체 누적 리포트가 복사되었습니다."));
+
+                if (navigator.clipboard && window.isSecureContext) {
+                    navigator.clipboard.writeText(text).then(() => alert("전체 누적 리포트가 복사되었습니다.")).catch(() => fallbackCopyTextToClipboard(text, "전체 누적 리포트가 복사되었습니다."));
+                } else {
+                    fallbackCopyTextToClipboard(text, "전체 누적 리포트가 복사되었습니다.");
+                }
             };
 
-            const copyRawDataModal = (text) => { navigator.clipboard.writeText(text).then(() => alert("원문 데이터 복사됨")); };
+            const copyRawDataModal = (text) => { 
+                if (navigator.clipboard && window.isSecureContext) {
+                    navigator.clipboard.writeText(text).then(() => alert("원문 데이터 복사됨")).catch(() => fallbackCopyTextToClipboard(text, "원문 데이터 복사됨"));
+                } else {
+                    fallbackCopyTextToClipboard(text, "원문 데이터 복사됨");
+                }
+            };
 
             const resetAll = () => { setStep(1); setStep1Result(null); setStep2Result(null); setSelectedCategory(null); setRawData(""); localStorage.removeItem(LOCAL_STORAGE_KEY); };
 
@@ -358,12 +401,16 @@
                             <div className="flex flex-col min-h-screen bg-slate-900 text-white p-8 pt-10 justify-center relative overflow-hidden animate-fade-in">
                                 <div className="absolute top-[-10%] left-[-20%] w-[140%] h-[70%] bg-gradient-to-br from-indigo-600/30 to-blue-500/20 rounded-full blur-[100px]"></div>
                                 <div className="relative z-10 space-y-12">
-                                    <h1 className="font-black leading-tight tracking-tighter text-42px">데이터 기반으로<br/>사용자 마음을<br/><span className="text-blue-400 text-45px">발견하세요.</span></h1>
+                                    <div className="space-y-6">
+                                        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 border border-white/20 font-bold uppercase tracking-widest text-[14px] backdrop-blur-sm">INTEGRATED INTELLIGENCE</div>
+                                        <h1 className="font-black leading-tight tracking-tighter text-42px">데이터 기반으로<br/>사용자 마음을<br/><span className="text-blue-400 text-45px">발견하세요.</span></h1>
+                                        <p className="text-slate-400 leading-relaxed text-[17px] font-light">Raw 데이터 분석에서 5Whys 진짜 원인 파악까지 한번에 진행하는 올인원 도구입니다.</p>
+                                    </div>
                                     <div className="space-y-5">
                                         <textarea rows={5} value={rawData} onChange={(e) => updateDataAndCount(e.target.value)} className="w-full bg-slate-800/50 border border-white/10 rounded-[2rem] p-7 text-white outline-none" placeholder="수집한 User Voice 데이터를 입력하거나 업로드 하세요" />
                                         <div className="flex gap-3 mt-10">
                                             <input type="file" id="file-up" className="hidden" onChange={handleFileUpload} />
-                                            <label htmlFor="file-up" className="flex-1 bg-white/10 py-4 rounded-[1.2rem] text-center font-bold cursor-pointer">파일 업로드</label>
+                                            <label htmlFor="file-up" className="flex-1 bg-white/10 py-4 rounded-[1.2rem] text-center font-bold cursor-pointer transition-colors flex items-center justify-center">파일 업로드</label>
                                             <button onClick={() => handleStep1Analysis()} disabled={!rawData.trim()} className="flex-1 bg-blue-600 text-white rounded-[1.2rem] font-black py-4">분석 시작</button>
                                         </div>
                                         <button onClick={loadSavedState} className="w-full mt-3 py-4 bg-white/5 text-slate-300 rounded-[1.2rem] font-bold border border-white/10 flex items-center justify-center gap-2"><Icon name="History" size={18} />기존 분석 내용 불러오기</button>
