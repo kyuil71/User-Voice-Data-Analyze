@@ -4,17 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>User Voice Analyze & Design Insight</title>
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- React, ReactDOM, Babel -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- XLSX Library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <!-- 외부 스타일시트 연결 -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body class="bg-[#F8FAFC]">
@@ -23,7 +18,6 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // React 렌더링 충돌 방지를 위해 안전하게 설계된 Icon 컴포넌트
         const Icon = ({ name, size = 24, className = "" }) => {
             const iconRef = useRef(null);
             useEffect(() => {
@@ -65,11 +59,11 @@
             </div>
         );
 
-        const Header = ({ step, setStep, step1Result, step2Result, selectedCategory, rootCauses, deepHypotheses, finalBrief, copyToClipboard, resetAll }) => {
+        const Header = ({ step, setStep, copyAccumulatedContent, resetAll, step1Result, step2Result, rootCauses, deepHypotheses, finalBrief }) => {
             const canGoForward = 
                 (step === 1 && step1Result) || 
                 (step === 2 && step2Result) || 
-                (step === 3 && selectedCategory) || 
+                (step === 3 && true) || 
                 (step === 4 && true) ||
                 (step === 5 && rootCauses?.length > 0) ||
                 (step === 6 && deepHypotheses?.length > 0) ||
@@ -105,7 +99,7 @@
                                 <Icon name="ChevronRight" size={24} className="text-slate-800" />
                             </button>
                         )}
-                        <button onClick={copyToClipboard} className="p-2 rounded-full hover:bg-slate-100/80 transition-colors shrink-0">
+                        <button onClick={copyAccumulatedContent} className="p-2 rounded-full hover:bg-slate-100/80 transition-colors shrink-0">
                             <Icon name="Copy" size={20} className="text-slate-500" />
                         </button>
                         <button onClick={resetAll} className="p-2 rounded-full hover:bg-slate-100/80 transition-colors shrink-0">
@@ -269,20 +263,83 @@
             const handleFileUpload = (e) => {
                 const f = e.target.files[0];
                 if (!f) return;
-                const r = new FileReader();
-                r.onload = (ev) => updateDataAndCount(ev.target.result);
-                r.readAsText(f);
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    try {
+                        const data = new Uint8Array(ev.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const firstSheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[firstSheetName];
+                        const json = XLSX.utils.sheet_to_json(worksheet, {header: 1});
+                        const text = json.map(row => row.filter(cell => cell !== undefined && cell !== null).join(' ')).filter(line => line.trim().length > 0).join('\n');
+                        updateDataAndCount(text);
+                    } catch (err) {
+                        console.error(err);
+                        alert("파일 형식 또는 인코딩을 읽는 중 오류가 발생했습니다.");
+                    }
+                };
+                reader.readAsArrayBuffer(f);
             };
 
-            const copyToClipboard = () => {
-                const text = document.getElementById('main-content')?.innerText || "";
-                const textArea = document.createElement("textarea");
-                textArea.value = text;
-                document.body.appendChild(textArea);
-                textArea.select();
-                document.execCommand('copy');
-                document.body.removeChild(textArea);
-                alert("현재 화면의 내용이 복사되었습니다.");
+            const copyAccumulatedContent = () => {
+                let text = "[누적 분석 리포트]\n\n";
+                if (step >= 2 && step1Result) {
+                    text += "--- 1단계: 전체 데이터 분석 ---\n";
+                    text += `Executive Summary: ${step1Result.summary}\n\n`;
+                    step1Result.categories.forEach(c => text += `[${c.name}]\n${c.summary}\n\n`);
+                }
+                if (step >= 3 && step2Result) {
+                    text += "--- 2단계: UX/DESIGN 심화 분석 ---\n";
+                    text += `UX/Design Summary: ${step2Result.summary}\n\n`;
+                    step2Result.uxCategories.forEach(c => text += `[${c.name}]\n${c.summary}\n\n`);
+                }
+                if (step >= 4 && selectedCategory) {
+                    text += "--- 3단계: 분석 대상 가설 ---\n";
+                    text += `${deepDiveInput}\n\n`;
+                }
+                if (step >= 5 && rootCauses.length > 0 && selectedCauseId) {
+                    const cause = rootCauses.find(c => c.id === selectedCauseId);
+                    if(cause) {
+                        text += "--- 4단계: 5Whys 분석 결과 ---\n";
+                        text += cause.chain.join('\n') + "\n";
+                        text += `Real Cause: ${cause.realCause}\n\n`;
+                    }
+                }
+                if (step >= 6 && deepHypotheses.length > 0 && selectedDeepHypoId) {
+                    const hypo = deepHypotheses.find(h => h.id === selectedDeepHypoId);
+                    if(hypo) {
+                        text += "--- 5단계: 디자인 인사이트 제안 ---\n";
+                        text += `가설: ${hypo.title}\n\n`;
+                        text += `Step 1: ${hypo.step1}\n\n`;
+                        text += `Step 2: ${hypo.step2}\n\n`;
+                        text += `Step 3: ${hypo.step3}\n\n`;
+                    }
+                }
+                if (step === 7 && finalBrief) {
+                    text += "--- 최종 통합 리포트 ---\n";
+                    text += `[${finalBrief.step1.title}]\n${finalBrief.step1.content}\n\n`;
+                    text += `[${finalBrief.step2.title}]\n${finalBrief.step2.content}\n\n`;
+                    text += `[${finalBrief.step3.title}]\n${finalBrief.step3.content}\n\n`;
+                    text += `[전략적 해결 방향]\n${finalBrief.step4.content}\n\n`;
+                }
+
+                if (navigator.clipboard) {
+                    navigator.clipboard.writeText(text).then(() => alert("현재 단계까지의 모든 분석 내용이 복사되었습니다.")).catch(() => {
+                        const area = document.createElement("textarea"); area.value = text; document.body.appendChild(area); area.select(); document.execCommand('copy'); document.body.removeChild(area); alert("현재 단계까지의 모든 분석 내용이 복사되었습니다.");
+                    });
+                } else {
+                    const area = document.createElement("textarea"); area.value = text; document.body.appendChild(area); area.select(); document.execCommand('copy'); document.body.removeChild(area); alert("현재 단계까지의 모든 분석 내용이 복사되었습니다.");
+                }
+            };
+
+            const copyRawDataModal = (text) => {
+                if (navigator.clipboard) {
+                    navigator.clipboard.writeText(text).then(() => alert("원문 데이터가 복사되었습니다.")).catch(() => {
+                        const area = document.createElement("textarea"); area.value = text; document.body.appendChild(area); area.select(); document.execCommand('copy'); document.body.removeChild(area); alert("원문 데이터가 복사되었습니다.");
+                    });
+                } else {
+                    const area = document.createElement("textarea"); area.value = text; document.body.appendChild(area); area.select(); document.execCommand('copy'); document.body.removeChild(area); alert("원문 데이터가 복사되었습니다.");
+                }
             };
 
             const resetAll = () => { setStep(1); setStep1Result(null); setStep2Result(null); setSelectedCategory(null); setRawData(""); setPerspective("사용 불편 관점"); };
@@ -311,7 +368,7 @@
                         </div>
                     )}
 
-                    <Header step={step} setStep={setStep} step1Result={step1Result} step2Result={step2Result} selectedCategory={selectedCategory} rootCauses={rootCauses} deepHypotheses={deepHypotheses} finalBrief={finalBrief} copyToClipboard={copyToClipboard} resetAll={resetAll} />
+                    <Header step={step} setStep={setStep} copyAccumulatedContent={copyAccumulatedContent} resetAll={resetAll} step1Result={step1Result} step2Result={step2Result} rootCauses={rootCauses} deepHypotheses={deepHypotheses} finalBrief={finalBrief} />
 
                     <main id="main-content" className="pt-16">
                         {step === 0 && (
@@ -348,8 +405,9 @@
                                         <textarea rows={5} value={rawData} onChange={(e) => updateDataAndCount(e.target.value)} className="w-full bg-slate-800/50 backdrop-blur-md border border-white/10 focus:border-blue-400/50 rounded-[2rem] p-7 text-white outline-none text-[17px] resize-none leading-relaxed transition-colors shadow-inner" placeholder="수집한 User Voice 데이터를 입력하거나 업로드 하세요" />
                                         <div className="flex gap-3 mt-10">
                                             <input type="file" id="file-up" className="hidden" onChange={handleFileUpload} />
-                                            <label htmlFor="file-up" className="flex-1 bg-white/10 hover:bg-white/15 py-4.5 rounded-[1.2rem] text-center font-bold cursor-pointer flex items-center justify-center transition-colors border border-white/5">파일 업로드</label>
-                                            <button onClick={() => handleStep1Analysis()} disabled={!rawData.trim()} className="flex-1 bg-blue-600 disabled:bg-slate-700 text-white rounded-[1.2rem] font-black shadow-lg shadow-blue-600/30 active:scale-95 transition-all">분석 시작</button>
+                                            {/* 버튼 사이즈 100% 확대 (py-9 적용) */}
+                                            <label htmlFor="file-up" className="flex-1 bg-white/10 hover:bg-white/15 py-9 rounded-[1.2rem] text-center font-bold cursor-pointer flex items-center justify-center transition-colors border border-white/5 text-[18px]">파일 업로드</label>
+                                            <button onClick={() => handleStep1Analysis()} disabled={!rawData.trim()} className="flex-1 bg-blue-600 disabled:bg-slate-700 text-white rounded-[1.2rem] font-black shadow-lg shadow-blue-600/30 active:scale-95 transition-all py-9 text-[18px]">분석 시작</button>
                                         </div>
                                     </div>
                                 </div>
@@ -365,7 +423,7 @@
                                 </div>
                                 <div className="space-y-5">
                                     {step1Result.categories.map((cat, i) => (
-                                        <div key={i} className="bg-white p-7 rounded-[2rem] card-shadow border border-slate-100/60 flex flex-col text-justify transition-all hover:border-slate-200">
+                                        <div key={i} className="bg-white p-7 rounded-[2rem] card-shadow border border-slate-100/60 flex flex-col text-justify transition-all hover:border-slate-300">
                                             <div className="flex justify-between items-start mb-5">
                                                 <h3 className="font-black text-lg flex-1 leading-tight text-slate-800 text-[20px]">{cat.name}</h3>
                                                 <button onClick={() => setOpinionModal({ visible: true, title: cat.name, opinions: cat.opinions })} className="bg-slate-50 px-4 py-1.5 rounded-xl font-bold text-slate-500 border border-slate-100 shrink-0 ml-3 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-all active:scale-95 whitespace-nowrap text-[14px]">{cat.opinions ? cat.opinions.length : 0}건 확인</button>
@@ -390,7 +448,8 @@
                                 </div>
                                 <div className="space-y-5 mb-12">
                                     {step2Result.uxCategories.map((cat, i) => (
-                                        <div key={i} className={`p-7 rounded-[2.5rem] transition-all duration-300 card-shadow bg-white ${selectedCategory?.name === cat.name ? 'border-indigo-500 ring-2 ring-indigo-500/20' : 'border border-slate-100/60 hover:border-slate-200'}`}>
+                                        // 선택된 박스의 테두리를 확연하게 두껍게 (border-[3px]) 처리
+                                        <div key={i} className={`p-7 rounded-[2.5rem] transition-all duration-300 card-shadow bg-white ${selectedCategory?.name === cat.name ? 'border-[3px] border-indigo-500 ring-4 ring-indigo-500/10' : 'border border-slate-100/60 hover:border-slate-300'}`}>
                                             <div className="flex justify-between items-start mb-5">
                                                 <h3 className="font-black text-20px flex-1 text-slate-800 leading-tight pr-2">{cat.name}</h3>
                                                 <div className="flex flex-col items-end gap-2.5 shrink-0 ml-2">
@@ -429,12 +488,14 @@
                             <div className="pt-8 px-5 animate-fade-in pb-64">
                                 <div className="space-y-6">
                                     {rootCauses.map((rc) => (
-                                        <div key={rc.id} className={`p-7 rounded-[2rem] transition-all duration-300 card-shadow ${selectedCauseId === rc.id ? 'bg-white border-orange-400 ring-2 ring-orange-400/20' : 'bg-white border border-slate-100/60 hover:border-slate-200'}`}>
+                                        // 선택된 박스의 테두리를 확연하게 두껍게 (border-[3px]) 처리
+                                        <div key={rc.id} className={`p-7 rounded-[2rem] transition-all duration-300 card-shadow ${selectedCauseId === rc.id ? 'bg-white border-[3px] border-orange-500 ring-4 ring-orange-500/10' : 'bg-white border border-slate-100/60 hover:border-slate-300'}`}>
                                             <div className="flex justify-between items-center mb-6">
                                                 <span className="bg-orange-50 text-orange-600 border border-orange-200/50 px-4 py-1.5 rounded-full font-bold text-[14px]">Case {rc.id}</span>
                                                 <button onClick={() => setSelectedCauseId(rc.id)} className={`px-6 py-2 rounded-xl font-black transition-all shadow-md active:scale-95 text-[15px] ${selectedCauseId === rc.id ? 'bg-orange-500 text-white shadow-orange-500/30' : 'bg-slate-900 text-white hover:bg-slate-800'}`}>원인 선택</button>
                                             </div>
-                                            <div className="space-y-4 mb-8 border-l-[3px] border-slate-100 pl-5 text-slate-700 text-justify">
+                                            {/* 왼쪽 선 삭제 및 패딩 동일하게 조정 */}
+                                            <div className="space-y-4 mb-8 text-slate-700 text-justify">
                                                 {rc.chain?.map((cStep, idx) => (
                                                     <p key={idx} className="whitespace-pre-line text-[16px] leading-relaxed">
                                                         {cStep.split('\n').map((line, lidx) => (<span key={lidx} className={line.startsWith('Why') ? 'font-black text-slate-900 block mb-1' : 'block font-light text-slate-600'}>{line}</span>))}
@@ -464,16 +525,21 @@
                             <div className="pt-8 px-5 animate-fade-in pb-80">
                                 <div className="grid gap-6">
                                     {deepHypotheses.map(h => (
-                                        <div key={h.id} className={`p-8 rounded-[2.5rem] transition-all duration-300 card-shadow ${selectedDeepHypoId === h.id ? 'bg-white border-indigo-500 ring-2 ring-indigo-500/20' : 'bg-white border border-slate-100/60 hover:border-slate-200'}`}>
-                                            <div className="flex justify-between items-start mb-6 border-b border-slate-100 pb-5">
-                                                <h3 className="text-19px font-black flex-1 mr-4 text-slate-800 leading-snug">{h.title}</h3>
-                                                <button onClick={() => setSelectedDeepHypoId(h.id)} className={`px-6 py-2.5 rounded-xl font-black transition-all shadow-md shrink-0 text-[15px] ${selectedDeepHypoId === h.id ? 'bg-indigo-600 text-white shadow-indigo-600/30' : 'bg-slate-900 text-white hover:bg-slate-800'}`}>가설 선택</button>
+                                        // 선택된 박스의 테두리를 확연하게 두껍게 (border-[3px]) 처리
+                                        <div key={h.id} className={`p-8 rounded-[2.5rem] transition-all duration-300 card-shadow ${selectedDeepHypoId === h.id ? 'bg-white border-[3px] border-indigo-500 ring-4 ring-indigo-500/10' : 'bg-white border border-slate-100/60 hover:border-slate-300'}`}>
+                                            {/* 버튼을 제목 위로 이동 */}
+                                            <div className="flex flex-col mb-6 border-b border-slate-100 pb-5">
+                                                <div className="flex justify-end mb-4">
+                                                    <button onClick={() => setSelectedDeepHypoId(h.id)} className={`px-7 py-2.5 rounded-xl font-black transition-all shadow-md shrink-0 text-[15px] ${selectedDeepHypoId === h.id ? 'bg-slate-900 text-white shadow-slate-900/30 ring-2 ring-offset-2 ring-slate-900' : 'bg-slate-800 text-white hover:bg-slate-700'}`}>가설 선택</button>
+                                                </div>
+                                                <h3 className="text-[22px] font-black text-slate-900 leading-snug">{h.title}</h3>
                                             </div>
                                             <div className="space-y-8">
                                                 {[{t:'Step 1. 표면적 원인 대처', c:h.step1}, {t:'Step 2. 맥락적 원인 재해석', c:h.step2}, {t:'Step 3. 맥락적 인사이트 제안', c:h.step3}].map((item, idx) => (
                                                     <div key={idx} className="relative">
-                                                        <div className="absolute left-0 top-1 w-1.5 h-1.5 rounded-full bg-orange-400"></div>
-                                                        <p className="text-[15px] font-bold text-slate-800 mb-2 pl-4 tracking-wide">{item.t}</p>
+                                                        <div className="absolute left-0 top-2 w-1.5 h-1.5 rounded-full bg-orange-400"></div>
+                                                        {/* Step 제목 글씨 크기 10% 확대 (기존 15px -> 17px 수준) */}
+                                                        <p className="text-[17px] font-bold text-slate-800 mb-2 pl-4 tracking-wide">{item.t}</p>
                                                         <p className="text-[17px] text-slate-600 font-light text-justify leading-relaxed whitespace-pre-line pl-4">{item.c}</p>
                                                     </div>
                                                 ))}
@@ -500,7 +566,7 @@
                                         <div key={i} className="bg-white p-8 rounded-[2.5rem] card-shadow border border-slate-100/60 text-justify">
                                             <div className="flex items-center gap-3 mb-4">
                                                 <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-black text-[14px]">{i+1}</div>
-                                                <h3 className="text-18px font-black text-slate-800 tracking-wide">{s.title === "5Why 진짜 원인" ? "5Whys 분석" : s.title}</h3>
+                                                <h3 className="text-[18px] font-black text-slate-800 tracking-wide">{s.title === "5Why 진짜 원인" ? "5Whys 분석" : s.title}</h3>
                                             </div>
                                             <p className="text-[17px] text-slate-600 font-light leading-relaxed whitespace-pre-line pl-1">{s.content}</p>
                                         </div>
@@ -508,36 +574,28 @@
                                     <div className="bg-slate-900 p-9 rounded-[2.5rem] shadow-2xl shadow-slate-900/30 relative overflow-hidden mt-8">
                                         <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-blue-500/20 to-indigo-500/20 rounded-full blur-3xl"></div>
                                         <div className="inline-block bg-indigo-500/20 border border-indigo-500/30 px-5 py-2 rounded-full text-[13px] font-black uppercase tracking-widest text-indigo-300 mb-6 relative z-10">전략적 해결 방향</div>
-                                        <p className="text-18px text-slate-100 font-light leading-[1.8] text-justify relative z-10">"{finalBrief.step4?.content}"</p>
+                                        <p className="text-[18px] text-slate-100 font-light leading-[1.8] text-justify relative z-10">"{finalBrief.step4?.content}"</p>
                                     </div>
                                 </div>
                                 <div className="mt-8"><AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} /></div>
                                 <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel max-w-[430px] mx-auto border-t border-slate-200/50 z-40">
-                                    <button onClick={() => { 
-                                        const text = `[전체 요약 리포트]\n\n${finalBrief.step1.title}: ${finalBrief.step1.content}\n\n${finalBrief.step2.title}: ${finalBrief.step2.content}\n\n${finalBrief.step3.title}: ${finalBrief.step3.content}\n\n전략적 해결 방향: ${finalBrief.step4.content}`;
-                                        const area = document.createElement('textarea'); area.value = text; document.body.appendChild(area); area.select(); document.execCommand('copy'); document.body.removeChild(area);
-                                        alert("리포트가 복사되었습니다.");
-                                    }} className="w-full py-5 bg-blue-600 hover:bg-blue-500 text-white rounded-[1.2rem] font-black text-[17px] shadow-xl shadow-blue-600/30 active:scale-95 transition-all">전체 리포트 복사하기</button>
+                                    <button onClick={copyAccumulatedContent} className="w-full py-5 bg-blue-600 hover:bg-blue-500 text-white rounded-[1.2rem] font-black text-[17px] shadow-xl shadow-blue-600/30 active:scale-95 transition-all">전체 리포트 복사하기</button>
                                 </div>
                             </div>
                         )}
                     </main>
 
-                    {/* Step Result Modal (원문 보기) */}
+                    {/* Step Result Modal (원문 보기) - 복사 버그 완전 해결본 */}
                     {opinionModal.visible && (
                         <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-slate-900/60 p-5 backdrop-blur-sm animate-fade-in">
                             <div className="bg-white text-slate-800 p-8 rounded-[2.5rem] w-full max-w-[390px] shadow-2xl relative border border-slate-100 overflow-hidden flex flex-col max-h-[85vh]">
                                 <div className="absolute top-6 right-6 flex items-center gap-2 z-10">
-                                    <button onClick={() => {
-                                        const text = opinionModal.opinions.join('\n');
-                                        const area = document.createElement('textarea'); area.value = text; document.body.appendChild(area); area.select(); document.execCommand('copy'); document.body.removeChild(area);
-                                        alert("원문 데이터가 복사되었습니다.");
-                                    }} className="p-2.5 text-blue-500 hover:bg-blue-50 hover:text-blue-600 rounded-full transition-colors" title="텍스트 복사"><Icon name="Copy" size={22} /></button>
+                                    <button onClick={() => copyRawDataModal(opinionModal.opinions.join('\n'))} className="p-2.5 text-blue-500 hover:bg-blue-50 hover:text-blue-600 rounded-full transition-colors" title="텍스트 복사"><Icon name="Copy" size={22} /></button>
                                     <button onClick={() => setOpinionModal({ visible: false, title: "", opinions: [] })} className="p-2.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-full transition-colors"><Icon name="X" size={24} /></button>
                                 </div>
                                 <div className="mb-6 pr-16 relative z-10">
                                     <div className="flex items-center gap-2 mb-3"><Icon name="Quote" className="text-blue-500 w-5 h-5" /><span className="text-[13px] font-black text-blue-500 uppercase tracking-widest">Raw Data</span></div>
-                                    <h4 className="text-20px font-black text-slate-900 leading-tight">"{opinionModal.title}"</h4>
+                                    <h4 className="text-[20px] font-black text-slate-900 leading-tight">"{opinionModal.title}"</h4>
                                 </div>
                                 <div className="space-y-3 overflow-y-auto pr-2 no-scrollbar flex-1 relative z-10">
                                     {opinionModal.opinions.map((op, idx) => (
@@ -546,7 +604,6 @@
                                         </div>
                                     ))}
                                 </div>
-                                {/* 모달 하단 그라데이션 (스크롤 표시용) */}
                                 <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-white to-transparent pointer-events-none z-20"></div>
                             </div>
                         </div>
