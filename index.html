@@ -31,19 +31,19 @@
         };
 
         const MODEL_NAME = "gemini-flash-latest"; 
-        const SESSION_KEY = "gemini_api_key_ux_hub_integrated";
+        const SESSION_KEY = "gemini_api_key_ux_hub_integrated"; // 로컬 스토리지 키로 사용
         const LOCAL_STORAGE_KEY = "ux_hub_analysis_state";
 
         const PROMPTS = {
-            STEP1: (data, note) => `Data: "${data}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n분석 요약(summary)은 한국어로 작성하십시오. 답변 내에 ** 강조 표시를 절대로 포함하지 마십시오.\n[중요1]: "EXECUTIVE SUMMARY"와 각 카테고리별 "summary"의 분석 내용은 반드시 각각 5줄에서 6줄 분량으로만 작성하십시오.\n[중요2]: "opinions" 배열에는 해당 카테고리의 요약 내용에 해당되는 실제 원문(Raw Data) 문장들만 단 하나도 누락 없이 100% 모두 포함해야 합니다. 절대로 번역하거나 요약, 변형하지 말고, 영어면 영어, 한국어면 한국어 등 원래 입력된 원문 문장 텍스트 '그대로' 추출하십시오.\n[중요3]: "count" 값은 반드시 "opinions" 배열에 추출된 원문 문장의 총 개수와 정확히 일치해야 합니다.\nProvide overall categorization and summary in JSON: {"summary": "EXECUTIVE SUMMARY (반드시 5~6줄 분량으로 작성)", "categories": [{"name": "카테고리명", "summary": "분석 내용 (반드시 5~6줄 분량으로 작성)", "count": "opinions 배열의 항목 개수와 반드시 동일한 숫자", "opinions": ["원문 그대로 1", "원문 그대로 2"]}]}`,
+            STEP1: (data, note) => `Data: "${data}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n분석 요약(summary)은 한국어로 작성하십시오. 답변 내에 ** 강조 표시를 절대로 포함하지 마십시오.\n[중요1]: "EXECUTIVE SUMMARY"와 각 카테고리별 "summary"의 분석 내용은 반드시 각각 5줄에서 6줄 분량으로만 작성하십시오.\n[중요2]: "opinions" 배열에는 해당 카테고리의 요약 내용에 해당되는 실제 원문(Raw Data) 문장들만 단 하나도 누락 없이 100% 모두 포함해야 합니다. 절대로 번역하거나 요약, 변형하지 말고, 영어면 영어, 한국어면 한국어 등 원래 입력된 원문 문장 텍스트 '그대로' 추출하십시오.\n[중요3]: "count" 값은 반드시 "opinions" 배열에 추출된 원문 문장의 총 개수와 정확히 일치해야 합니다.\n[중요4]: 응답 속도 최적화를 위해 불필요한 텍스트 없이 오직 JSON 형식으로만 즉시 출력하십시오.\nProvide overall categorization and summary in JSON: {"summary": "EXECUTIVE SUMMARY (반드시 5~6줄 분량으로 작성)", "categories": [{"name": "카테고리명", "summary": "분석 내용 (반드시 5~6줄 분량으로 작성)", "count": "opinions 배열의 항목 개수와 반드시 동일한 숫자", "opinions": ["원문 그대로 1", "원문 그대로 2"]}]}`,
             
-            STEP2: (data, note) => `Data: "${data}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n디자인 및 UX 측면에서 매우 정교하게 세분화된 카테고라이징을 수행하십시오. 분석 요약(summary)은 한국어로 작성하며 ** 강조 표시는 금지합니다.\n[중요1]: 각 이슈별 "summary" 분석 내용의 양을 기존보다 50% 더 늘려서 전문적이고 깊이 있게 기술하십시오.\n[중요2]: "opinions" 배열에는 해당 카테고리의 요약 내용에 해당되는 실제 원문(Raw Data) 문장들만 단 하나도 누락 없이 100% 모두 포함해야 합니다. 절대로 번역하거나 요약, 변형하지 말고, 영어면 영어, 한국어면 한국어 등 원래 입력된 원문 문장 텍스트 '그대로' 추출하십시오.\n[중요3]: "count" 값은 반드시 "opinions" 배열에 추출된 원문 문장의 총 개수와 정확히 일치해야 합니다.\nProvide JSON: {"summary": "UX/DESIGN SUMMARY", "uxCategories": [{"name": "이슈명", "summary": "상세 분석 내용 (기존보다 50% 분량 증가)", "count": "opinions 배열의 항목 개수와 반드시 동일한 숫자", "opinions": ["원문 그대로 1", "원문 그대로 2"]}]}`,
+            STEP2: (data, note) => `Data: "${data}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n디자인 및 UX 측면에서 매우 정교하게 세분화된 카테고라이징을 수행하십시오. 분석 요약(summary)은 한국어로 작성하며 ** 강조 표시는 금지합니다.\n[중요1]: "UX/DESIGN SUMMARY" 및 각 이슈별 "summary" 분석 내용은 반드시 5줄에서 6줄 분량으로만 작성하십시오.\n[중요2]: "opinions" 배열에는 해당 카테고리의 요약 내용에 해당되는 실제 원문(Raw Data) 문장들만 단 하나도 누락 없이 100% 모두 포함해야 합니다. 절대로 번역하거나 요약, 변형하지 말고, 영어면 영어, 한국어면 한국어 등 원래 입력된 원문 문장 텍스트 '그대로' 추출하십시오.\n[중요3]: "count" 값은 반드시 "opinions" 배열에 추출된 원문 문장의 총 개수와 정확히 일치해야 합니다.\n[중요4]: 응답 속도 최적화를 위해 불필요한 텍스트 없이 오직 JSON 형식으로만 즉시 출력하십시오.\nProvide JSON: {"summary": "UX/DESIGN SUMMARY (반드시 5~6줄 분량으로 작성)", "uxCategories": [{"name": "이슈명", "summary": "분석 내용 (반드시 5~6줄 분량으로 작성)", "count": "opinions 배열의 항목 개수와 반드시 동일한 숫자", "opinions": ["원문 그대로 1", "원문 그대로 2"]}]}`,
 
-            ANALYSIS: (perspective, input, note) => `You are a Senior Root Cause Analyst. Strictly lens: [${perspective}]. \n${note ? `[Revision Request]: ${note}` : ""}\nDerivate 3 to 6 distinct 5Why chains. Format: Why [N]\\n왜 [질문]?\\n→ [답변]\\n핵심: [요약]. Return ONLY a JSON: { "rootCauses": [ { "id": 1, "chain": ["Why 1\\\\n왜...\\\\n→...\\\\n핵심:...","Why 2...","Why 3...","Why 4...","Why 5..."], "realCause": "..." } ] }`,
+            ANALYSIS: (perspective, input, note) => `You are a Senior Root Cause Analyst. Strictly lens: [${perspective}]. \n${note ? `[Revision Request]: ${note}` : ""}\nDerivate 3 to 6 distinct 5Why chains. Format: Why [N]\\n왜 [질문]?\\n→ [답변]\\n핵심: [요약].\n[중요]: 응답 속도 최적화를 위해 불필요한 텍스트 없이 오직 JSON 형식으로만 즉시 출력하십시오.\nReturn ONLY a JSON: { "rootCauses": [ { "id": 1, "chain": ["Why 1\\\\n왜...\\\\n→...\\\\n핵심:...","Why 2...","Why 3...","Why 4...","Why 5..."], "realCause": "..." } ] }`,
             
-            HYPOTHESIS: (perspective, input, cause, note) => `# Role: 전문 UX 전략 컨설턴트. # Context: 도출된 '5Why 진짜 원인'과 선택된 [${perspective}]을 바탕으로 확장 가설 제시. \n${note ? `[수정 요청 반영]: ${note}` : ""}\n[중요1]: 반드시 [${perspective}]에 철저히 입각하여, 이 관점만의 독특하고 차별화된 전략적 해결책을 도출해야 합니다.\n[중요2]: 반드시 정확히 2개의 제안(가설)만 생성하십시오.\n[중요3]: Step 1, 2, 3 각각의 내용 분량을 기존보다 50% 더 늘려서 매우 구체적이고 전략적인 통찰을 제공하십시오.\nReturn ONLY a JSON: { "hypotheses": [ { "id": 1, "title": "...", "step1": "...", "step2": "...", "step3": "..." }, { "id": 2, "title": "...", "step1": "...", "step2": "...", "step3": "..." } ] }`,
+            HYPOTHESIS: (perspective, input, cause, note) => `# Role: 전문 UX 전략 컨설턴트. # Context: 도출된 '5Why 진짜 원인'과 선택된 [${perspective}]을 바탕으로 확장 가설 제시. \n${note ? `[수정 요청 반영]: ${note}` : ""}\n[중요1]: 반드시 [${perspective}]에 철저히 입각하여, 이 관점만의 독특하고 차별화된 전략적 해결책을 도출해야 합니다.\n[중요2]: 반드시 정확히 2개의 제안(가설)만 생성하십시오.\n[중요3]: Step 1, 2, 3 각각의 내용 분량을 기존보다 50% 더 늘려서 매우 구체적이고 전략적인 통찰을 제공하십시오.\n[중요4]: 응답 속도 최적화를 위해 불필요한 텍스트 없이 오직 JSON 형식으로만 즉시 출력하십시오.\nReturn ONLY a JSON: { "hypotheses": [ { "id": 1, "title": "...", "step1": "...", "step2": "...", "step3": "..." }, { "id": 2, "title": "...", "step1": "...", "step2": "...", "step3": "..." } ] }`,
             
-            SUMMARY: (input, cause, hypo, note) => `You are a Senior Insight Strategist. Synthesize the journey.\n${note ? `[수정 요청 반영]: ${note}` : ""}\n[IMPORTANT]: Generate the "content" for each step VERY DETAILED. Reduce the total word count by 10% compared to a "maximum filler" version to ensure every sentence carries high strategic weight.\nReturn ONLY a JSON object:\n{\n  "finalReport": {\n    "step1": { "title": "분석 대상 가설", "content": "..." },\n    "step2": { "title": "5Whys 분석", "content": "..." },\n    "step3": { "title": "확장된 문제 가설", "content": "..." },\n    "step4": { "title": "전략적 해결 방향", "content": "..." }\n  }\n}`
+            SUMMARY: (input, cause, hypo, note) => `You are a Senior Insight Strategist. Synthesize the journey.\n${note ? `[수정 요청 반영]: ${note}` : ""}\n[IMPORTANT]: Generate the "content" for each step VERY DETAILED. Reduce the total word count by 10% compared to a "maximum filler" version to ensure every sentence carries high strategic weight.\n[중요]: 응답 속도 최적화를 위해 불필요한 텍스트 없이 오직 JSON 형식으로만 즉시 출력하십시오.\nReturn ONLY a JSON object:\n{\n  "finalReport": {\n    "step1": { "title": "분석 대상 가설", "content": "..." },\n    "step2": { "title": "5Whys 분석", "content": "..." },\n    "step3": { "title": "확장된 문제 가설", "content": "..." },\n    "step4": { "title": "전략적 해결 방향", "content": "..." }\n  }\n}`
         };
 
         const AIQuestionBox = ({ qaInput, setQaInput, askAI }) => (
@@ -60,15 +60,16 @@
             </div>
         );
 
-        const Header = ({ step, setStep, copyAccumulatedContent, resetAll, step1Result, step2Result, rootCauses, deepHypotheses, finalBrief }) => {
+        const Header = ({ step, setStep, copyAccumulatedContent, resetAll, apiKey, step1Result, step2Result, selectedCategory, rootCauses, deepHypotheses, finalBrief }) => {
+            // 자유로운 단계 이동을 위한 로직 강화
             const canGoForward = 
+                (step === 0 && apiKey) ||
                 (step === 1 && step1Result) || 
                 (step === 2 && step2Result) || 
-                (step === 3 && true) || 
-                (step === 4 && true) ||
-                (step === 5 && rootCauses?.length > 0) ||
-                (step === 6 && deepHypotheses?.length > 0) ||
-                (step === 7 && finalBrief);
+                (step === 3 && selectedCategory) || 
+                (step === 4 && rootCauses?.length > 0) ||
+                (step === 5 && deepHypotheses?.length > 0) ||
+                (step === 6 && finalBrief);
 
             const canGoBack = step > 0;
 
@@ -95,7 +96,7 @@
                         <h1 className="font-bold text-[18px] text-slate-800 truncate leading-tight">{getDynamicTitle()}</h1>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
-                        {(canGoForward || (step === 0 && step2Result)) && (
+                        {canGoForward && (
                             <button onClick={() => setStep(s => s + 1)} className="p-2 rounded-full hover:bg-slate-100/80 transition-colors shrink-0">
                                 <Icon name="ChevronRight" size={24} className="text-slate-800" />
                             </button>
@@ -112,7 +113,8 @@
         };
 
         const App = () => {
-            const [apiKey, setApiKey] = useState(sessionStorage.getItem(SESSION_KEY) || "");
+            // 브라우저 세션 초기화 방지를 위해 apiKey를 localStorage에서 관리
+            const [apiKey, setApiKey] = useState(localStorage.getItem(SESSION_KEY) || "");
             const [step, setStep] = useState(apiKey ? 1 : 0);
             const [rawData, setRawData] = useState("");
             const [itemCount, setItemCount] = useState(0);
@@ -140,9 +142,9 @@
                 }, 50);
             }, [step]);
 
-            // 브라우저를 껐다 켜도 데이터가 유지되는 로컬 스토리지 자동 저장 기능 (백그라운드에서 동작)
+            // 브라우저를 껐다 켜도 데이터가 유지되는 로컬 스토리지 영구 자동 저장 기능
             useEffect(() => {
-                if (step >= 1) {
+                if (step >= 1 || rawData) {
                     const stateToSave = {
                         step, rawData, step1Result, step2Result, selectedCategory, deepDiveInput, perspective, rootCauses, selectedCauseId, deepHypotheses, selectedDeepHypoId, finalBrief
                     };
@@ -152,10 +154,18 @@
 
             const loadSavedState = () => {
                 const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+                const savedApiKey = localStorage.getItem(SESSION_KEY);
+                
+                if(!savedApiKey) {
+                    alert("API 키 인증이 초기화 되었습니다. 첫 화면에서 다시 인증해 주세요.");
+                    setStep(0);
+                    return;
+                }
+                
                 if (saved) {
                     try {
                         const parsed = JSON.parse(saved);
-                        if(parsed.step > 1) {
+                        if(parsed.step >= 1 || parsed.rawData) {
                             setRawData(parsed.rawData || "");
                             setStep1Result(parsed.step1Result || null);
                             setStep2Result(parsed.step2Result || null);
@@ -186,7 +196,7 @@
 
             const callGemini = async (prompt, isJson = true, systemInstruction = null) => {
                 setIsAnalyzing(true);
-                let delay = 1000;
+                let delay = 500; // 속도 개선을 위해 재시도 딜레이 감소
                 for (let i = 0; i < 5; i++) {
                     try {
                         const payload = {
@@ -206,7 +216,7 @@
                         return isJson ? JSON.parse(jsonStr) : text;
                     } catch (err) {
                         if (i === 4) { setIsAnalyzing(false); throw err; }
-                        await new Promise(r => setTimeout(r, delay)); delay *= 2;
+                        await new Promise(r => setTimeout(r, delay)); delay *= 1.5;
                     }
                 }
             };
@@ -221,7 +231,8 @@
                         body: JSON.stringify({ contents: [{ parts: [{ text: "OK" }] }] })
                     });
                     if (response.ok) {
-                        setApiKey(inputKey); sessionStorage.setItem(SESSION_KEY, inputKey); setStep(1); setError(null);
+                        // 세션 종료 후에도 유지되도록 localStorage에 영구 저장
+                        setApiKey(inputKey); localStorage.setItem(SESSION_KEY, inputKey); setStep(1); setError(null);
                     } else throw new Error();
                 } catch { setError("API 인증 실패. 키를 확인해 주세요."); }
                 finally { setIsAnalyzing(false); }
@@ -412,7 +423,7 @@
                         </div>
                     )}
 
-                    <Header step={step} setStep={setStep} copyAccumulatedContent={copyAccumulatedContent} resetAll={resetAll} step1Result={step1Result} step2Result={step2Result} rootCauses={rootCauses} deepHypotheses={deepHypotheses} finalBrief={finalBrief} />
+                    <Header step={step} setStep={setStep} copyAccumulatedContent={copyAccumulatedContent} resetAll={resetAll} apiKey={apiKey} step1Result={step1Result} step2Result={step2Result} selectedCategory={selectedCategory} rootCauses={rootCauses} deepHypotheses={deepHypotheses} finalBrief={finalBrief} />
 
                     <main id="main-content" className="pt-16">
                         {step === 0 && (
@@ -452,7 +463,6 @@
                                             <label htmlFor="file-up" className="flex-1 bg-white/10 hover:bg-white/15 py-4 rounded-[1.2rem] text-center font-bold cursor-pointer flex items-center justify-center transition-colors border border-white/5 text-[16px]">파일 업로드</label>
                                             <button onClick={() => handleStep1Analysis()} disabled={!rawData.trim()} className="flex-1 bg-blue-600 disabled:bg-slate-700 text-white rounded-[1.2rem] font-black shadow-lg shadow-blue-600/30 active:scale-95 transition-all py-4 text-[16px]">분석 시작</button>
                                         </div>
-                                        {/* 기존 데이터 불러오기 버튼 */}
                                         <button onClick={loadSavedState} className="w-full mt-3 py-4 bg-white/5 hover:bg-white/10 text-slate-300 rounded-[1.2rem] font-bold transition-colors border border-white/10 text-[16px] flex items-center justify-center gap-2">
                                             <Icon name="History" size={18} />
                                             기존 분석 내용 불러오기
