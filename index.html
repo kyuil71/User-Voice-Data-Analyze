@@ -18,15 +18,11 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // 브라우저 보안 에러로 인한 화면 멈춤(Blank Screen) 방지용 안전 스토리지 함수
         const safeGetItem = (key) => {
             try { return localStorage.getItem(key); } catch (e) { return null; }
         };
         const safeSetItem = (key, value) => {
             try { localStorage.setItem(key, value); } catch (e) { console.warn("Storage restricted"); }
-        };
-        const safeRemoveItem = (key) => {
-            try { localStorage.removeItem(key); } catch (e) {}
         };
 
         const Icon = ({ name, size = 24, className = "" }) => {
@@ -43,7 +39,6 @@
 
         const MODEL_NAME = "gemini-flash-latest"; 
         const SESSION_KEY = "gemini_api_key_ux_hub_integrated";
-        const LOCAL_STORAGE_KEY = "ux_hub_analysis_state_final";
 
         const PROMPTS = {
             STEP1: (data, note) => `Data: "${data}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n분석 요약(summary)은 한국어로 작성하십시오. 답변 내에 ** 강조 표시를 절대로 포함하지 마십시오.\n[중요1]: "EXECUTIVE SUMMARY"와 각 카테고리별 "summary"의 분석 내용은 반드시 각각 4줄에서 5줄 분량으로만 작성하십시오.\n[중요2]: "opinions" 배열에는 해당 카테고리의 요약 내용에 해당되는 실제 원문(Raw Data) 문장들만 단 하나도 누락 없이 100% 모두 포함해야 합니다. 절대로 번역하거나 요약, 변형하지 말고, 원래 입력된 원문 문장 텍스트 '그대로' 추출하십시오.\n[중요3]: "count" 값은 반드시 "opinions" 배열에 추출된 원문 문장의 총 개수와 정확히 일치해야 합니다.\n[중요4]: 분석 속도를 극대화하기 위해 불필요한 설명이나 수식어를 생략하고 오직 JSON 데이터만 즉시 출력하십시오.\nProvide JSON: {"summary": "EXECUTIVE SUMMARY", "categories": [{"name": "카테고리명", "summary": "분석 내용", "count": 0, "opinions": []}]}`,
@@ -72,6 +67,7 @@
         );
 
         const Header = ({ step, setStep, copyAccumulatedContent, resetAll, apiKey, step1Result, step2Result, selectedCategory, rootCauses, deepHypotheses, finalBrief }) => {
+            // 자유로운 단계 이동 제어 (현재 진행된 데이터가 존재하는 단계까지만 활성화)
             const canGoForward = 
                 (step === 0 && apiKey) ||
                 (step === 1 && step1Result) || 
@@ -125,39 +121,6 @@
             const [qaInput, setQaInput] = useState("");
             const [opinionModal, setOpinionModal] = useState({ visible: false, title: "", opinions: [] });
 
-            const forceSave = (override = {}) => {
-                const currentState = {
-                    step, rawData, step1Result, step2Result, selectedCategory, deepDiveInput, perspective, rootCauses, selectedCauseId, deepHypotheses, selectedDeepHypoId, finalBrief, ...override
-                };
-                safeSetItem(LOCAL_STORAGE_KEY, JSON.stringify(currentState));
-            };
-
-            const loadSavedState = () => {
-                const saved = safeGetItem(LOCAL_STORAGE_KEY);
-                if (!saved) { alert("기존에 저장된 분석 내용이 없습니다."); return; }
-                try {
-                    const p = JSON.parse(saved);
-                    setRawData(p.rawData || "");
-                    if (p.rawData) {
-                        setItemCount(p.rawData.split('\n').filter(line => line.trim().length > 0).length);
-                    } else {
-                        setItemCount(0);
-                    }
-                    setStep1Result(p.step1Result);
-                    setStep2Result(p.step2Result);
-                    setSelectedCategory(p.selectedCategory);
-                    setDeepDiveInput(p.deepDiveInput || "");
-                    setPerspective(p.perspective || "사용 불편 관점");
-                    setRootCauses(p.rootCauses || []);
-                    setSelectedCauseId(p.selectedCauseId);
-                    setDeepHypotheses(p.deepHypotheses || []);
-                    setSelectedDeepHypoId(p.selectedDeepHypoId);
-                    setFinalBrief(p.finalBrief);
-                    setStep(p.step || 1);
-                    alert("이전 분석 데이터가 성공적으로 복구되었습니다.");
-                } catch(e) { alert("데이터 복구 중 오류가 발생했습니다."); }
-            };
-
             useEffect(() => { setTimeout(() => window.scrollTo(0,0), 50); }, [step]);
 
             const processAndLimitData = (text, showWarning = false) => {
@@ -174,7 +137,6 @@
                 const { finalData, count } = processAndLimitData(text, false);
                 setRawData(finalData);
                 setItemCount(count);
-                forceSave({ rawData: finalData, step: 1 });
             };
 
             const handleFileUpload = (e) => {
@@ -191,7 +153,6 @@
                         const { finalData, count } = processAndLimitData(text, true);
                         setRawData(finalData);
                         setItemCount(count);
-                        forceSave({ rawData: finalData, step: 1 });
                     } catch(err) { alert("파일 처리 중 오류 발생"); }
                 };
                 reader.readAsArrayBuffer(f);
@@ -259,7 +220,6 @@
                 try {
                     const res = await callGemini(PROMPTS.STEP1(rawData, note));
                     setStep1Result(res); setStep(2);
-                    forceSave({ step1Result: res, step: 2 });
                 } catch { setError("분석 실패"); }
             };
 
@@ -268,7 +228,6 @@
                 try {
                     const res = await callGemini(PROMPTS.STEP2(rawData, note));
                     setStep2Result(res); setStep(3);
-                    forceSave({ step2Result: res, step: 3 });
                 } catch { setError("분석 실패"); }
             };
 
@@ -276,7 +235,7 @@
                 setLoadingMsg("5Whys 분석 중...");
                 try {
                     const res = await callGemini(`Input: ${deepDiveInput}`, true, PROMPTS.ANALYSIS(perspective, deepDiveInput, note));
-                    if (res && res.rootCauses) { setRootCauses(res.rootCauses); setSelectedCauseId(null); setStep(5); forceSave({ rootCauses: res.rootCauses, step: 5 }); }
+                    if (res && res.rootCauses) { setRootCauses(res.rootCauses); setSelectedCauseId(null); setStep(5); }
                 } catch { setError("분석 실패"); }
             };
 
@@ -285,7 +244,7 @@
                 setLoadingMsg(`${p} 관점 재분석...`);
                 try {
                     const res = await callGemini(`Input: ${deepDiveInput}`, true, PROMPTS.ANALYSIS(p, deepDiveInput));
-                    if (res && res.rootCauses) { setRootCauses(res.rootCauses); setSelectedCauseId(null); forceSave({ rootCauses: res.rootCauses, perspective: p }); }
+                    if (res && res.rootCauses) { setRootCauses(res.rootCauses); setSelectedCauseId(null); }
                 } catch { setError("오류 발생"); }
             };
 
@@ -295,7 +254,7 @@
                 const selected = rootCauses.find(c => c.id === selectedCauseId);
                 try {
                     const res = await callGemini(`Cause: ${selected.realCause}`, true, PROMPTS.HYPOTHESIS(p, deepDiveInput, selected.realCause));
-                    if(res && res.hypotheses) { setDeepHypotheses(res.hypotheses); setSelectedDeepHypoId(null); forceSave({ deepHypotheses: res.hypotheses, perspective: p }); }
+                    if(res && res.hypotheses) { setDeepHypotheses(res.hypotheses); setSelectedDeepHypoId(null); }
                 } catch { setError("오류 발생"); }
             };
 
@@ -304,7 +263,7 @@
                 const selected = rootCauses.find(c => c.id === id);
                 setLoadingMsg("인사이트 도출 중...");
                 callGemini(`Cause: ${selected.realCause}`, true, PROMPTS.HYPOTHESIS(perspective, deepDiveInput, selected.realCause, note))
-                    .then(res => { if(res && res.hypotheses) { setDeepHypotheses(res.hypotheses); setSelectedDeepHypoId(null); setStep(6); forceSave({ deepHypotheses: res.hypotheses, selectedCauseId: id, step: 6 }); } });
+                    .then(res => { if(res && res.hypotheses) { setDeepHypotheses(res.hypotheses); setSelectedDeepHypoId(null); setStep(6); } });
             };
 
             const generateFinalReport = (id, note = null) => {
@@ -313,7 +272,7 @@
                 const selectedCause = rootCauses.find(c => c.id === selectedCauseId);
                 setLoadingMsg("최종 리포트 생성 중...");
                 callGemini(`Cause: ${selectedCause.realCause}\nHypo: ${selectedHypo.title}`, true, PROMPTS.SUMMARY(deepDiveInput, selectedCause.realCause, selectedHypo.title, note))
-                    .then(res => { if(res && res.finalReport) { setFinalBrief(res.finalReport); setStep(7); forceSave({ finalBrief: res.finalReport, selectedDeepHypoId: id, step: 7 }); } });
+                    .then(res => { if(res && res.finalReport) { setFinalBrief(res.finalReport); setStep(7); } });
             };
 
             const fallbackCopyTextToClipboard = (text, successMsg) => {
@@ -365,7 +324,11 @@
                 } else { fallbackCopyTextToClipboard(text, "원문 데이터 복사됨"); }
             };
 
-            const resetAll = () => { setStep(1); setStep1Result(null); setStep2Result(null); setSelectedCategory(null); setRawData(""); setItemCount(0); setPerspective("사용 불편 관점"); safeRemoveItem(LOCAL_STORAGE_KEY); };
+            const resetAll = () => { 
+                setStep(1); setStep1Result(null); setStep2Result(null); setSelectedCategory(null); 
+                setRawData(""); setItemCount(0); setPerspective("사용 불편 관점"); 
+                setRootCauses([]); setDeepHypotheses([]); setFinalBrief(null);
+            };
 
             return (
                 <div className="w-full max-w-[430px] mx-auto bg-[#f8fafc] min-h-screen relative font-sans text-slate-900 pb-10 shadow-[0_0_60px_rgba(0,0,0,0.05)]">
@@ -433,7 +396,6 @@
                                             <label htmlFor="file-up" className="flex-1 bg-white/10 hover:bg-white/15 py-4 rounded-[1.2rem] text-center font-bold cursor-pointer transition-colors flex items-center justify-center">파일 업로드</label>
                                             <button onClick={() => handleStep1Analysis()} disabled={!rawData.trim()} className="flex-1 bg-blue-600 disabled:bg-slate-700 text-white rounded-[1.2rem] font-black py-4">분석 시작</button>
                                         </div>
-                                        <button onClick={loadSavedState} className="w-full mt-3 py-4 bg-white/5 hover:bg-white/10 text-slate-300 rounded-[1.2rem] font-bold border border-white/10 flex items-center justify-center gap-2"><Icon name="History" size={18} />기존 분석 내용 불러오기</button>
                                     </div>
                                 </div>
                             </div>
@@ -451,7 +413,7 @@
                                         <div key={i} className="bg-white p-7 rounded-[2rem] card-shadow border border-slate-100 flex flex-col transition-all">
                                             <div className="flex justify-between items-start mb-5">
                                                 <h3 className="font-black text-slate-800 text-[20px] leading-tight pr-2 flex-1">{cat.name}</h3>
-                                                <button onClick={() => setOpinionModal({ visible: true, title: cat.name, opinions: cat.opinions })} className="bg-slate-50 px-4 py-1.5 rounded-xl font-bold text-slate-500 text-[14px] shrink-0 ml-2">{cat.count || 0}건 확인</button>
+                                                <button onClick={() => setOpinionModal({ visible: true, title: cat.name, opinions: cat.opinions })} className="bg-slate-50 px-4 py-1.5 rounded-xl border border-slate-100 font-bold text-slate-500 text-[14px] shrink-0 ml-2 hover:bg-slate-100 transition-colors whitespace-nowrap">{cat.opinions ? cat.opinions.length : 0}건 확인</button>
                                             </div>
                                             <p className="text-slate-600 font-light leading-relaxed">{cat.summary}</p>
                                         </div>
@@ -475,8 +437,8 @@
                                             <div className="flex justify-between items-start mb-5">
                                                 <h3 className="font-black text-20px flex-1 text-slate-800 leading-tight pr-2">{cat.name}</h3>
                                                 <div className="flex flex-col items-end gap-2.5 shrink-0 ml-2">
-                                                    <button onClick={() => setOpinionModal({ visible: true, title: cat.name, opinions: cat.opinions })} className="bg-slate-50 px-4 py-1.5 rounded-xl text-slate-500 font-bold text-[13px]">원문 보기</button>
-                                                    <button onClick={() => { setSelectedCategory(cat); setDeepDiveInput(`이슈: ${cat.name}\n내용: ${cat.summary}`); forceSave({ selectedCategory: cat, deepDiveInput: `이슈: ${cat.name}\n내용: ${cat.summary}` }); }} className={`px-6 py-2.5 rounded-xl font-black transition-all shadow-md active:scale-95 text-[15px] ${selectedCategory?.name === cat.name ? 'bg-indigo-600 text-white' : 'bg-slate-900 text-white'}`}>이슈 선택</button>
+                                                    <button onClick={() => setOpinionModal({ visible: true, title: cat.name, opinions: cat.opinions })} className="bg-slate-50 px-4 py-1.5 rounded-xl border border-slate-100 text-slate-500 font-bold text-[13px] hover:bg-slate-100 transition-colors whitespace-nowrap">{cat.opinions ? cat.opinions.length : 0}건 원문 보기</button>
+                                                    <button onClick={() => { setSelectedCategory(cat); setDeepDiveInput(`이슈: ${cat.name}\n내용: ${cat.summary}`); }} className={`px-6 py-2.5 rounded-xl font-black transition-all shadow-md active:scale-95 text-[15px] ${selectedCategory?.name === cat.name ? 'bg-indigo-600 text-white' : 'bg-slate-900 text-white'}`}>이슈 선택</button>
                                                 </div>
                                             </div>
                                             <p className="text-slate-600 text-[17px] font-light leading-relaxed">{cat.summary}</p>
@@ -494,7 +456,7 @@
                         {step === 4 && (
                             <div className="pt-8 px-6 pb-48 animate-fade-in">
                                 <h2 className="text-28px font-black text-slate-800 leading-tight mb-8">분석할 <span className="gradient-text text-28px">대상 가설</span></h2>
-                                <div className="bg-white p-6 rounded-[2rem] card-shadow border border-orange-100 mb-8"><textarea value={deepDiveInput} onChange={(e) => setDeepDiveInput(e.target.value)} className="w-full h-64 outline-none text-[17px] text-slate-700 font-light resize-none leading-relaxed"></textarea></div>
+                                <div className="bg-white p-6 rounded-[2rem] card-shadow border border-orange-100 mb-8"><textarea value={deepDiveInput} onChange={(e) => setDeepDiveInput(e.target.value)} className="w-full h-64 outline-none text-[17px] text-slate-700 font-light resize-none leading-relaxed" /></div>
                                 <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel border-t max-w-[430px] mx-auto z-40"><button onClick={() => start5WhysAnalysis()} className="w-full py-5 bg-slate-900 text-white rounded-[1.2rem] font-black shadow-xl active:scale-95 transition-all">5Whys 원인 분석 실행</button></div>
                             </div>
                         )}
