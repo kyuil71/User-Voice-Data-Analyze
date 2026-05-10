@@ -39,6 +39,7 @@
 
         const MODEL_NAME = "gemini-flash-latest"; 
         const SESSION_KEY = "gemini_api_key_ux_hub_integrated";
+        const LOCAL_STORAGE_KEY = "ux_hub_analysis_state_final";
 
         const PROMPTS = {
             STEP1: (data, note) => `Data: "${data}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n분석 요약(summary)은 한국어로 작성하십시오. 답변 내에 ** 강조 표시를 절대로 포함하지 마십시오.\n[중요1]: "EXECUTIVE SUMMARY"와 각 카테고리별 "summary"의 분석 내용은 반드시 각각 4줄에서 5줄 분량으로만 작성하십시오.\n[중요2]: "opinions" 배열에는 해당 카테고리의 요약 내용에 해당되는 실제 원문(Raw Data) 문장들만 단 하나도 누락 없이 100% 모두 포함해야 합니다. 절대로 번역하거나 요약, 변형하지 말고, 원래 입력된 원문 문장 텍스트 '그대로' 추출하십시오.\n[중요3]: "count" 값은 반드시 "opinions" 배열에 추출된 원문 문장의 총 개수와 정확히 일치해야 합니다.\n[중요4]: 분석 속도를 극대화하기 위해 불필요한 설명이나 수식어를 생략하고 오직 JSON 데이터만 즉시 출력하십시오.\nProvide JSON: {"summary": "EXECUTIVE SUMMARY", "categories": [{"name": "카테고리명", "summary": "분석 내용", "count": 0, "opinions": []}]}`,
@@ -67,7 +68,6 @@
         );
 
         const Header = ({ step, setStep, copyAccumulatedContent, resetAll, apiKey, step1Result, step2Result, selectedCategory, rootCauses, deepHypotheses, finalBrief }) => {
-            // 자유로운 단계 이동 제어 (현재 진행된 데이터가 존재하는 단계까지만 활성화)
             const canGoForward = 
                 (step === 0 && apiKey) ||
                 (step === 1 && step1Result) || 
@@ -79,13 +79,25 @@
 
             const canGoBack = step > 0;
             
+            const getDynamicTitle = () => {
+                if (step === 0) return "";
+                if (step === 1) return "사용자 데이터 입력";
+                if (step === 2) return "전체 Affinity 분석";
+                if (step === 3) return "UX/Design Affinity 분석";
+                if (step === 4) return "원인 분석 대상 설정";
+                if (step === 5) return "5Whys 분석 결과";
+                if (step === 6) return "디자인 인사이트 도출";
+                if (step === 7) return "최종 분석 결과";
+                return "";
+            };
+
             return (
                 <header className="fixed top-0 left-0 right-0 z-50 glass-panel px-4 h-16 flex items-center justify-between max-w-[430px] mx-auto">
                     <div className="flex items-center gap-1 flex-1">
                         {canGoBack && (
                             <button onClick={() => setStep(s => s - 1)} className="p-2 -ml-2 rounded-full hover:bg-slate-100/80 shrink-0"><Icon name="ChevronLeft" size={24} className="text-slate-600"/></button>
                         )}
-                        <h1 className="font-bold text-[18px] text-slate-800 truncate">디자인 분석 엔진</h1>
+                        <h1 className="font-bold text-[18px] text-slate-800 truncate">{getDynamicTitle()}</h1>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                         {canGoForward && (
@@ -413,14 +425,14 @@
                                         <div key={i} className="bg-white p-7 rounded-[2rem] card-shadow border border-slate-100 flex flex-col transition-all">
                                             <div className="flex justify-between items-start mb-5">
                                                 <h3 className="font-black text-slate-800 text-[20px] leading-tight pr-2 flex-1">{cat.name}</h3>
-                                                <button onClick={() => setOpinionModal({ visible: true, title: cat.name, opinions: cat.opinions })} className="bg-slate-50 px-4 py-1.5 rounded-xl border border-slate-100 font-bold text-slate-500 text-[14px] shrink-0 ml-2 hover:bg-slate-100 transition-colors whitespace-nowrap">{cat.opinions ? cat.opinions.length : 0}건 확인</button>
+                                                <button onClick={() => setOpinionModal({ visible: true, title: cat.name, opinions: cat.opinions })} className="bg-slate-50 px-4 py-1.5 rounded-xl font-bold text-slate-500 text-[14px] shrink-0 ml-2 hover:bg-slate-100 transition-colors whitespace-nowrap">{cat.opinions ? cat.opinions.length : 0}건 확인</button>
                                             </div>
                                             <p className="text-slate-600 font-light leading-relaxed">{cat.summary}</p>
                                         </div>
                                     ))}
                                 </div>
                                 <div className="mt-8"><AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} /></div>
-                                <div className="fixed bottom-0 left-0 right-0 p-5 glass-panel border-t max-w-[430px] mx-auto z-[60]"><button onClick={() => handleStep2Analysis()} className="w-full py-5 bg-slate-900 text-white rounded-[1.2rem] font-black text-lg active:scale-95 transition-all">2단계: UX/디자인 심화 분석 이동</button></div>
+                                <div className="fixed bottom-0 left-0 right-0 p-5 glass-panel border-t max-w-[430px] mx-auto z-[60]"><button onClick={() => handleStep2Analysis()} className="w-full py-5 bg-slate-900 text-white rounded-[1.2rem] font-black text-lg active:scale-95 transition-all">UX/디자인 심화 분석 이동</button></div>
                             </div>
                         )}
 
