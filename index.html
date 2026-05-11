@@ -39,7 +39,6 @@
 
         const MODEL_NAME = "gemini-flash-latest"; 
         const SESSION_KEY = "gemini_api_key_ux_hub_integrated";
-        const LOCAL_STORAGE_KEY = "ux_hub_analysis_state_final";
 
         const PROMPTS = {
             STEP1: (data, note) => `Data: "${data}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n분석 요약(summary)은 한국어로 작성하십시오. 답변 내에 ** 강조 표시를 절대로 포함하지 마십시오.\n[중요1]: "EXECUTIVE SUMMARY"와 각 카테고리별 "summary"의 분석 내용은 반드시 각각 4줄에서 5줄 분량으로만 작성하십시오.\n[중요2]: "opinions" 배열에는 해당 카테고리의 요약 내용에 해당되는 실제 원문(Raw Data) 문장들만 단 하나도 누락 없이 100% 모두 포함해야 합니다. 절대로 번역하거나 요약, 변형하지 말고, 원래 입력된 원문 문장 텍스트 '그대로' 추출하십시오.\n[중요3]: "count" 값은 반드시 "opinions" 배열에 추출된 원문 문장의 총 개수와 정확히 일치해야 합니다.\n[중요4]: 분석 속도를 극대화하기 위해 불필요한 설명이나 수식어를 생략하고 오직 JSON 데이터만 즉시 출력하십시오.\nProvide JSON: {"summary": "EXECUTIVE SUMMARY", "categories": [{"name": "카테고리명", "summary": "분석 내용", "count": 0, "opinions": []}]}`,
@@ -50,7 +49,7 @@
             
             HYPOTHESIS: (perspective, input, cause, note) => `# Role: 전문 UX 전략 컨설턴트. # Context: 도출된 '5Why 진짜 원인'과 선택된 [${perspective}]을 바탕으로 확장 가설 제시. \n${note ? `[수정 요청 반영]: ${note}` : ""}\n[중요1]: Step 1, Step 2, Step 3 각각의 내용은 반드시 3줄에서 4줄 분량으로만 간결하게 핵심을 제공하십시오.\n[중요2]: 응답 속도 최적화를 위해 오직 JSON 형식으로만 즉시 출력하십시오.\nReturn ONLY a JSON: { "hypotheses": [ { "id": 1, "title": "...", "step1": "...", "step2": "...", "step3": "..." }, { "id": 2, "title": "...", "step1": "...", "step2": "...", "step3": "..." } ] }`,
             
-            SUMMARY: (input, cause, hypo, note) => `You are a Senior Insight Strategist.\nReturn ONLY a JSON object:\n{\n  "finalReport": {\n    "step1": { "title": "분석 대상 가설", "content": "..." },\n    "step2": { "title": "5Whys 분석", "content": "..." },\n    "step3": { "title": "확장된 문제 가설", "content": "..." },\n    "step4": { "title": "전략적 해결 방향", "content": "..." }\n  }\n}`
+            SUMMARY: (input, cause, hypo, note) => `You are a Senior Insight Strategist.\n${note ? `[수정 요청 반영]: ${note}\n` : ""}[중요1]: "step2" (5Whys 분석)의 내용은 Why 1부터 5까지 나열하지 말고, 핵심 원인만 요약해서 3줄 정도로 정리해 주십시오.\n[중요2]: "step4" (전략적 해결 방향)의 내용은 처음과 끝에 따옴표를 넣지 말고, 반드시 아래와 같이 줄바꿈(\\n)을 적용하여 번호순으로 작성해 주십시오.\n1. 내용\n2. 내용\n3. 내용\n[중요3]: 오직 JSON 형식으로만 출력하십시오.\nReturn ONLY a JSON object:\n{\n  "finalReport": {\n    "step1": { "title": "분석 대상 가설", "content": "..." },\n    "step2": { "title": "5Whys 분석", "content": "핵심 원인 3줄 요약..." },\n    "step3": { "title": "확장된 문제 가설", "content": "..." },\n    "step4": { "title": "전략적 해결 방향", "content": "1. ...\\n2. ...\\n3. ..." }\n  }\n}`
         };
 
         const AIQuestionBox = ({ qaInput, setQaInput, askAI }) => (
@@ -422,12 +421,12 @@
                                 </div>
                                 <div className="space-y-5">
                                     {step1Result.categories.map((cat, i) => (
-                                        <div key={i} className="bg-white p-7 rounded-[2rem] card-shadow border border-slate-100 flex flex-col transition-all">
+                                        <div key={i} className="bg-white p-7 rounded-[2rem] card-shadow border border-slate-100 flex flex-col transition-all hover:border-slate-300">
                                             <div className="flex justify-between items-start mb-5">
                                                 <h3 className="font-black text-slate-800 text-[20px] leading-tight pr-2 flex-1">{cat.name}</h3>
-                                                <button onClick={() => setOpinionModal({ visible: true, title: cat.name, opinions: cat.opinions })} className="bg-slate-50 px-4 py-1.5 rounded-xl font-bold text-slate-500 text-[14px] shrink-0 ml-2 hover:bg-slate-100 transition-colors whitespace-nowrap">{cat.opinions ? cat.opinions.length : 0}건 확인</button>
+                                                <button onClick={() => setOpinionModal({ visible: true, title: cat.name, opinions: cat.opinions })} className="bg-slate-50 px-4 py-1.5 rounded-xl border border-slate-100 font-bold text-slate-500 text-[14px] shrink-0 ml-2 hover:bg-slate-100 transition-colors whitespace-nowrap">{cat.opinions ? cat.opinions.length : 0}건 확인</button>
                                             </div>
-                                            <p className="text-slate-600 font-light leading-relaxed">{cat.summary}</p>
+                                            <p className="text-slate-600 font-light leading-relaxed whitespace-pre-line">{cat.summary}</p>
                                         </div>
                                     ))}
                                 </div>
@@ -445,7 +444,7 @@
                                 </div>
                                 <div className="space-y-5 mb-12">
                                     {step2Result.uxCategories.map((cat, i) => (
-                                        <div key={i} className={`p-7 rounded-[2.5rem] transition-all card-shadow bg-white ${selectedCategory?.name === cat.name ? 'border-[3px] border-indigo-500 ring-4 ring-indigo-500/10' : 'border border-slate-100'}`}>
+                                        <div key={i} className={`p-7 rounded-[2.5rem] transition-all duration-300 card-shadow bg-white ${selectedCategory?.name === cat.name ? 'border-[3px] border-indigo-500 ring-4 ring-indigo-500/10' : 'border border-slate-100/60 hover:border-slate-300'}`}>
                                             <div className="flex justify-between items-start mb-5">
                                                 <h3 className="font-black text-20px flex-1 text-slate-800 leading-tight pr-2">{cat.name}</h3>
                                                 <div className="flex flex-col items-end gap-2.5 shrink-0 ml-2">
@@ -453,7 +452,7 @@
                                                     <button onClick={() => { setSelectedCategory(cat); setDeepDiveInput(`이슈: ${cat.name}\n내용: ${cat.summary}`); }} className={`px-6 py-2.5 rounded-xl font-black transition-all shadow-md active:scale-95 text-[15px] ${selectedCategory?.name === cat.name ? 'bg-indigo-600 text-white' : 'bg-slate-900 text-white'}`}>이슈 선택</button>
                                                 </div>
                                             </div>
-                                            <p className="text-slate-600 text-[17px] font-light leading-relaxed">{cat.summary}</p>
+                                            <p className="text-slate-600 text-[17px] font-light text-justify leading-relaxed whitespace-pre-line">{cat.summary}</p>
                                         </div>
                                     ))}
                                 </div>
@@ -477,7 +476,7 @@
                             <div className="pt-8 px-5 pb-64 animate-fade-in">
                                 <div className="space-y-6">
                                     {rootCauses.map((rc) => (
-                                        <div key={rc.id} className={`p-7 rounded-[2rem] transition-all card-shadow bg-white ${selectedCauseId === rc.id ? 'border-[3px] border-orange-500 ring-4 ring-orange-500/10' : 'border border-slate-100'}`}>
+                                        <div key={rc.id} className={`p-7 rounded-[2rem] transition-all duration-300 card-shadow bg-white ${selectedCauseId === rc.id ? 'border-[3px] border-orange-500 ring-4 ring-orange-500/10' : 'border border-slate-100/60 hover:border-slate-300'}`}>
                                             <div className="flex justify-between items-center mb-6">
                                                 <span className="bg-orange-50 text-orange-600 px-4 py-1.5 rounded-full font-bold text-[14px]">Case {rc.id}</span>
                                                 <button onClick={() => setSelectedCauseId(rc.id)} className={`px-6 py-2 rounded-xl font-black shadow-md active:scale-95 text-[15px] ${selectedCauseId === rc.id ? 'bg-orange-500 text-white' : 'bg-slate-900 text-white'}`}>원인 선택</button>
@@ -500,7 +499,7 @@
                                 <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel max-w-[430px] mx-auto z-40 border-t shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
                                     <div className="grid grid-cols-2 gap-2 mb-5">
                                         {['사용 불편 관점', '기술 진화 관점', '심미적 관점', '비지니스 관점'].map(p => (
-                                            <button key={p} onClick={() => changePerspective(p)} className={`py-3 rounded-xl text-[14px] font-bold border transition-all ${perspective === p ? 'bg-orange-50 border-orange-400 text-orange-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500'}`}>{p}</button>
+                                            <button key={p} onClick={() => changePerspective(p)} className={`py-3 rounded-xl text-[14px] font-bold border transition-all active:scale-95 ${perspective === p ? 'bg-orange-50 border-orange-400 text-orange-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500'}`}>{p}</button>
                                         ))}
                                     </div>
                                     <button onClick={() => exploreDeepHypotheses(selectedCauseId)} disabled={selectedCauseId === null} className="w-full py-5 rounded-[1.2rem] font-black bg-slate-900 text-white shadow-xl active:scale-95 transition-all disabled:bg-slate-200">디자인 인사이트 도출</button>
@@ -512,7 +511,7 @@
                             <div className="pt-8 px-5 pb-80 animate-fade-in">
                                 <div className="grid gap-6">
                                     {deepHypotheses.map(h => (
-                                        <div key={h.id} className={`p-8 rounded-[2.5rem] transition-all card-shadow bg-white ${selectedDeepHypoId === h.id ? 'border-[3px] border-indigo-500 ring-4 ring-indigo-500/10' : 'border border-slate-100'}`}>
+                                        <div key={h.id} className={`p-8 rounded-[2.5rem] transition-all duration-300 card-shadow bg-white ${selectedDeepHypoId === h.id ? 'border-[3px] border-indigo-500 ring-4 ring-indigo-500/10' : 'border border-slate-100/60 hover:border-slate-300'}`}>
                                             <div className="flex flex-col mb-6 border-b pb-5">
                                                 <div className="flex justify-end mb-4"><button onClick={() => setSelectedDeepHypoId(h.id)} className={`px-7 py-2.5 rounded-xl font-black shadow-md active:scale-95 text-[15px] ${selectedDeepHypoId === h.id ? 'bg-slate-900 text-white ring-2 ring-offset-2 ring-slate-900' : 'bg-slate-800 text-white'}`}>가설 선택</button></div>
                                                 <h3 className="text-[22px] font-black text-slate-900 leading-snug">{h.title}</h3>
@@ -533,7 +532,7 @@
                                 <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel border-t max-w-[430px] mx-auto z-40 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
                                     <div className="grid grid-cols-2 gap-2 mb-5">
                                         {['사용 불편 관점', '기술 진화 관점', '심미적 관점', '비지니스 관점'].map(p => (
-                                            <button key={p} onClick={() => changePerspectiveInStep6(p)} className={`py-3 rounded-xl font-bold border transition-all ${perspective === p ? 'bg-indigo-50 border-indigo-400 text-indigo-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500'}`}>{p}</button>
+                                            <button key={p} onClick={() => changePerspectiveInStep6(p)} className={`py-3 rounded-xl font-bold border transition-all active:scale-95 ${perspective === p ? 'bg-indigo-50 border-indigo-400 text-indigo-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500'}`}>{p}</button>
                                         ))}
                                     </div>
                                     <button onClick={() => generateFinalReport(selectedDeepHypoId)} disabled={selectedDeepHypoId === null} className="w-full py-5 bg-slate-900 text-white rounded-[1.2rem] font-black shadow-xl active:scale-95 transition-all disabled:bg-slate-200 disabled:shadow-none">최종 통합 리포트 생성</button>
@@ -547,13 +546,13 @@
                                     {[finalBrief.step1, finalBrief.step2, finalBrief.step3].map((s, i) => (
                                         <div key={i} className="bg-white p-8 rounded-[2.5rem] card-shadow border border-slate-100 text-justify">
                                             <div className="flex items-center gap-3 mb-4"><div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-black text-[14px]">{i+1}</div><h3 className="text-[18px] font-black text-slate-800">{s.title === "5Why 진짜 원인" ? "5Whys 분석" : s.title}</h3></div>
-                                            <p className="text-[17px] text-slate-600 font-light leading-relaxed">{s.content}</p>
+                                            <p className="text-[17px] text-slate-600 font-light leading-relaxed whitespace-pre-line pl-1">{s.content}</p>
                                         </div>
                                     ))}
                                     <div className="bg-slate-900 p-9 rounded-[2.5rem] shadow-2xl relative overflow-hidden mt-8">
                                         <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-blue-500/20 to-indigo-500/20 rounded-full blur-3xl"></div>
                                         <div className="inline-block bg-indigo-500/20 border border-indigo-500/30 px-5 py-2 rounded-full text-[13px] font-black uppercase text-indigo-300 mb-6 relative z-10">전략적 해결 방향</div>
-                                        <p className="text-[18px] text-slate-100 font-light leading-[1.8] text-justify relative z-10">"{finalBrief.step4?.content}"</p>
+                                        <p className="text-[18px] text-slate-100 font-light leading-[1.8] text-justify relative z-10 whitespace-pre-line">{finalBrief.step4?.content?.replace(/^["']|["']$/g, '')}</p>
                                     </div>
                                 </div>
                                 <div className="mt-8"><AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} /></div>
