@@ -49,7 +49,7 @@
             
             HYPOTHESIS: (perspective, input, cause, note) => `# Role: 전문 UX 전략 컨설턴트. # Context: 도출된 '5Why 진짜 원인'과 선택된 [${perspective}]을 바탕으로 확장 가설 제시. \n${note ? `[수정 요청 반영]: ${note}` : ""}\n[중요1]: 반드시 [${perspective}]에 철저히 입각하여, 이 관점만의 독특하고 차별화된 전략적 해결책을 도출해야 합니다.\n[중요2]: 반드시 정확히 2개의 제안(가설)만 생성하십시오.\n[중요3]: Step 1, Step 2, Step 3 각각의 내용은 반드시 3~4줄 분량으로, 매우 깊이 있고 풍부한 인사이트가 담기도록 상세하게 작성하십시오.\n[중요4]: 응답 속도 최적화를 위해 오직 JSON 형식으로만 즉시 출력하십시오.\nReturn ONLY a JSON: { "hypotheses": [ { "id": 1, "title": "...", "step1": "...", "step2": "...", "step3": "..." }, { "id": 2, "title": "...", "step1": "...", "step2": "...", "step3": "..." } ] }`,
             
-            SUMMARY: (input, cause, hypo, note) => `You are a Senior Insight Strategist.\n${note ? `[수정 요청 반영]: ${note}\n` : ""}[중요1]: "step1"(분석 대상 가설), "step2"(5Whys 분석), "step3"(확장된 문제 가설)의 분석 결과는 각각 반드시 3~4줄 분량으로 풍부하고 상세하게 작성해 주십시오. 단, step2는 Why 1~5를 나열하지 말고 핵심 원인 중심으로 요약해야 합니다.\n[중요2]: "step4" (전략적 해결 방향)의 내용 역시 전체 3~4줄 분량의 풍부한 내용이 되도록 하며, 처음과 끝에 따옴표를 넣지 말고 반드시 아래와 같이 줄바꿈(\\n)을 적용하여 번호순으로 작성해 주십시오.\n1. 내용\n2. 내용\n3. 내용\n[중요3]: 오직 JSON 형식으로만 출력하십시오.\nReturn ONLY a JSON object:\n{\n  "finalReport": {\n    "step1": { "title": "분석 대상 가설", "content": "..." },\n    "step2": { "title": "5Whys 분석", "content": "..." },\n    "step3": { "title": "확장된 문제 가설", "content": "..." },\n    "step4": { "title": "전략적 해결 방향", "content": "1. ...\\n2. ...\\n3. ..." }\n  }\n}`
+            SUMMARY: (input, cause, hypo, note) => `You are a Senior Insight Strategist.\n${note ? `[수정 요청 반영]: ${note}\n` : ""}[중요1]: "step1"(분석 대상 가설), "step2"(5Whys 분석), "step3"(확장된 문제 가설)의 분석 결과는 각각 반드시 3~4줄 분량으로 풍부하고 상세하게 작성해 주십시오. 단, step2는 Why 1~5를 나열하지 말고 핵심 원인 중심으로 요약해야 합니다.\n[중요2]: "step4" (전략적 해결 방향)의 내용 역시 전체 3~4줄 분량의 풍부한 내용이 되도록 하며, 처음과 끝에 따옴표를 넣지 말고 반드시 아래와 같이 줄바꿈(\\n)을 적용하여 번호순으로 작성해 주십시오.\n1. 내용\n2. 내용\n3. 내용\n[중요3]: 오직 JSON 형식으로만 출력하십시오.\nReturn ONLY a JSON object:\n{\n  "finalReport": {\n    "step1": { "title": "분석 대상 가설", "content": "..." },\n    "step2": { "title": "5Whys 분석", "content": "핵심 원인 3줄 요약..." },\n    "step3": { "title": "확장된 문제 가설", "content": "..." },\n    "step4": { "title": "전략적 해결 방향", "content": "1. ...\\n2. ...\\n3. ..." }\n  }\n}`
         };
 
         const AIQuestionBox = ({ qaInput, setQaInput, askAI }) => (
@@ -344,12 +344,9 @@
             return (
                 <div className="w-full max-w-[430px] mx-auto bg-[#f8fafc] min-h-screen relative font-sans text-slate-900 pb-10 shadow-[0_0_60px_rgba(0,0,0,0.05)]">
                     {isAnalyzing && (
-                        <div className="fixed inset-0 z-[10000] glass-panel flex flex-col items-center justify-center p-6 text-center max-w-[430px] mx-auto">
-                            <div className="w-20 h-20 rounded-full border-[4px] border-slate-100 border-t-[#4355FF] animate-spin mb-8 flex items-center justify-center shadow-lg shadow-blue-500/20">
-                                <Icon name="Sparkles" size={28} className="text-[#4355FF] animate-pulse" />
-                            </div>
-                            <h3 className="text-[22px] font-black mb-3 text-slate-800">심층 분석 진행 중</h3>
-                            <p className="text-slate-500 font-medium leading-relaxed">{loadingMsg}</p>
+                        <div className="fixed inset-0 z-[10000] bg-white/95 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center max-w-[430px] mx-auto">
+                            <div className="w-14 h-14 rounded-full border-4 border-slate-100 border-t-blue-600 animate-spin mb-6"></div>
+                            <h3 className="text-[20px] font-black text-[#0f172a] tracking-tight">AI 분석 중</h3>
                         </div>
                     )}
 
@@ -365,21 +362,19 @@
 
                     <Header step={step} setStep={setStep} copyAccumulatedContent={copyAccumulatedContent} resetAll={resetAll} apiKey={apiKey} step1Result={step1Result} step2Result={step2Result} selectedCategory={selectedCategory} rootCauses={rootCauses} deepHypotheses={deepHypotheses} finalBrief={finalBrief} />
 
-                    <main id="main-content" className="pt-16">
+                    <main id="main-content" className={step === 0 ? "" : "pt-16"}>
                         {step === 0 && (
-                            <div className="min-h-screen flex flex-col items-center justify-center p-10 bg-white text-center animate-fade-in">
-                                <div className="w-24 h-24 bg-gradient-to-br from-[#4355FF] to-indigo-500 rounded-[2rem] flex items-center justify-center mb-10 shadow-2xl shadow-indigo-500/30 animate-float"><Icon name="Fingerprint" size={48} className="text-white" /></div>
-                                <div className="w-full mb-2 px-2">
-                                    <h1 className="font-black tracking-tighter gradient-text-primary leading-[1.2] pb-1 text-45px">User Voice Analysis</h1>
-                                    <h1 className="font-black tracking-tighter gradient-text-primary leading-[1.2] pb-2 mb-6 text-45px">&amp; Design Insight</h1>
+                            <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-gradient-to-b from-[#e0f2fe] to-[#f8fafc] text-center animate-fade-in">
+                                <div className="w-full mb-10 px-2 mt-[-10vh]">
+                                    <h1 className="font-black tracking-tight text-[#0f172a] leading-[1.2] text-[36px] mb-4">Design Research<br/>Interview & Insight</h1>
+                                    <p className="text-slate-500 font-bold text-[16px]">디자인 리서치 자동화 도구</p>
                                 </div>
-                                <p className="text-slate-400 font-medium mb-12 text-[16px]">데이터 분석에서 디자인 인사이트 도출까지</p>
-                                <div className="w-full space-y-5">
-                                    <div className="py-2">
-                                        <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-indigo-500 font-bold underline underline-offset-4 hover:text-indigo-600 transition-colors">개인 API Key 발급받기</a>
+                                <div className="w-full bg-white p-8 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] space-y-6">
+                                    <div>
+                                        <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-blue-600 font-bold text-[15px] hover:text-blue-700 transition-colors">API Key 발급받기</a>
                                     </div>
-                                    <input type="password" id="api-key-input" defaultValue={apiKey} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl text-center outline-none" placeholder="Gemini API KEY 입력" />
-                                    <button onClick={() => validateKey(document.getElementById('api-key-input').value)} className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black shadow-xl active:scale-95 transition-all">API Key 확인 후 시작</button>
+                                    <input type="password" id="api-key-input" defaultValue={apiKey} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-center outline-none focus:border-blue-400 transition-colors text-[15px] font-medium text-slate-700 placeholder:text-slate-400" placeholder="Gemini API Key 입력" />
+                                    <button onClick={() => validateKey(document.getElementById('api-key-input').value)} className="w-full py-4 bg-[#0f172a] hover:bg-slate-800 text-white rounded-xl font-black text-[16px] shadow-lg active:scale-95 transition-all">시작하기</button>
                                 </div>
                             </div>
                         )}
@@ -395,7 +390,7 @@
                                     </div>
                                     <div className="space-y-5">
                                         <div>
-                                            <textarea rows={5} value={rawData} onChange={(e) => updateDataAndCount(e.target.value)} className="w-full bg-slate-800/50 backdrop-blur-md border border-white/10 focus:border-blue-400/50 rounded-[2rem] p-7 text-white outline-none text-[17px] resize-none leading-relaxed transition-colors shadow-inner" placeholder="수집한 User Voice 데이터를 입력하거나 업로드 하세요"></textarea>
+                                            <textarea rows={5} value={rawData} onChange={(e) => updateDataAndCount(e.target.value)} className="w-full bg-[#1e293b] border border-slate-500 focus:border-blue-400 rounded-[2rem] p-7 text-white outline-none text-[16px] resize-none leading-relaxed transition-colors shadow-inner" placeholder="수집한 User Voice 데이터를 입력하거나 업로드 하세요"></textarea>
                                             {itemCount > 0 ? (
                                                 <p className="text-right text-blue-400 font-bold text-[15px] mt-3 pr-3 animate-fade-in tracking-wide">
                                                     ✓ 분석 반영 데이터: <span className="text-white">{itemCount}</span>개 {itemCount >= 500 ? <span className="text-orange-400 ml-1">(최대 한도 500개 적용됨)</span> : null}
