@@ -40,7 +40,6 @@
         const MODEL_NAME = "gemini-flash-latest"; 
         const SESSION_KEY = "gemini_api_key_ux_hub_integrated";
 
-        // 기존 분석 품질을 100% 유지하면서 병렬 처리와 문자열 매핑을 위해 프롬프트를 2단계(PLAN, DETAIL)로 분할 최적화
         const PROMPTS = {
             STEP1_PLAN: (data, note) => {
                 const numberedData = data.split('\n').map((line, i) => `[ID:${i}] ${line}`).join('\n');
@@ -185,7 +184,6 @@
                 e.target.value = null; 
             };
 
-            // 병렬 호출 시 스피너 충돌을 막기 위해 showLoading 파라미터 추가
             const callGemini = async (prompt, isJson = true, systemInstruction = null, showLoading = true) => {
                 if(showLoading) setIsAnalyzing(true);
                 let delay = 500; 
@@ -248,7 +246,7 @@
                 } catch { setError("오류 발생"); }
             };
 
-            // 카테고리 정의 -> 병렬 매핑 로직 적용 (산출물 형태 100% 유지)
+            // 트래픽 병렬 제어 (Batch Concurrency) 적용 - 1단계
             const handleStep1Analysis = async (note = null) => {
                 setIsAnalyzing(true);
                 setLoadingMsg("1단계 분석 중 (카테고리 구성)...");
@@ -258,7 +256,8 @@
                     
                     if (!planRes || !planRes.categoryNames) throw new Error("분석 플랜 생성 실패");
 
-                    const detailPromises = planRes.categoryNames.map(async (catName) => {
+                    // Task 배열 생성 (실행되지 않은 함수 형태)
+                    const detailTaskFactories = planRes.categoryNames.map(catName => async () => {
                         const detailRes = await callGemini(PROMPTS.STEP1_DETAIL(rawData, catName), true, null, false);
                         const opinionString = (detailRes.opinions || "").toString();
                         const opinionArray = opinionString.split(',').map(id => lines[parseInt(id.trim(), 10)]).filter(Boolean);
@@ -270,7 +269,14 @@
                         };
                     });
 
-                    const categories = await Promise.all(detailPromises);
+                    // 서버 트래픽 방어를 위해 2개씩 묶어서(Batch) 순차적으로 병렬 실행
+                    const categories = [];
+                    for (let i = 0; i < detailTaskFactories.length; i += 2) {
+                        const batch = detailTaskFactories.slice(i, i + 2);
+                        const batchResults = await Promise.all(batch.map(task => task()));
+                        categories.push(...batchResults);
+                    }
+
                     setStep1Result({ summary: planRes.summary, categories }); 
                     setStep(2);
                 } catch { 
@@ -280,7 +286,7 @@
                 }
             };
 
-            // 카테고리 정의 -> 병렬 매핑 로직 적용 (산출물 형태 100% 유지)
+            // 트래픽 병렬 제어 (Batch Concurrency) 적용 - 2단계
             const handleStep2Analysis = async (note = null) => {
                 setIsAnalyzing(true);
                 setLoadingMsg("2단계 분석 중 (UX 이슈 구성)...");
@@ -290,7 +296,8 @@
                     
                     if (!planRes || !planRes.categoryNames) throw new Error("분석 플랜 생성 실패");
 
-                    const detailPromises = planRes.categoryNames.map(async (catName) => {
+                    // Task 배열 생성
+                    const detailTaskFactories = planRes.categoryNames.map(catName => async () => {
                         const detailRes = await callGemini(PROMPTS.STEP2_DETAIL(rawData, catName), true, null, false);
                         const opinionString = (detailRes.opinions || "").toString();
                         const opinionArray = opinionString.split(',').map(id => lines[parseInt(id.trim(), 10)]).filter(Boolean);
@@ -302,7 +309,14 @@
                         };
                     });
 
-                    const uxCategories = await Promise.all(detailPromises);
+                    // 2개씩 묶어서(Batch) 순차적으로 병렬 실행
+                    const uxCategories = [];
+                    for (let i = 0; i < detailTaskFactories.length; i += 2) {
+                        const batch = detailTaskFactories.slice(i, i + 2);
+                        const batchResults = await Promise.all(batch.map(task => task()));
+                        uxCategories.push(...batchResults);
+                    }
+
                     setStep2Result({ summary: planRes.summary, uxCategories }); 
                     setStep(3);
                 } catch { 
@@ -504,160 +518,4 @@
 
                         {step === 3 && step2Result && (
                             <div className="pt-8 px-5 pb-48 animate-fade-in">
-                                <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white mb-8 shadow-2xl text-justify relative overflow-hidden">
-                                    <div className="absolute top-0 left-0 w-32 h-32 bg-indigo-500/20 rounded-full blur-3xl"></div>
-                                    <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-4 py-1.5 rounded-full font-black uppercase mb-5 inline-block text-[13px]">UX/DESIGN SUMMARY</span>
-                                    <p className="text-[17px] font-light leading-[1.8] text-slate-200 relative z-10">"{step2Result.summary}"</p>
-                                </div>
-                                <div className="space-y-5 mb-12">
-                                    {step2Result.uxCategories.map((cat, i) => (
-                                        <div key={i} className={`p-7 rounded-[2.5rem] transition-all duration-300 card-shadow bg-white ${selectedCategory?.name === cat.name ? 'border-[3px] border-indigo-500 ring-4 ring-indigo-500/10' : 'border border-slate-100/60 hover:border-slate-300'}`}>
-                                            <div className="flex justify-between items-start mb-5">
-                                                <h3 className="font-black text-20px flex-1 text-slate-800 leading-tight pr-2">{cat.name}</h3>
-                                                <div className="flex flex-col items-end gap-2.5 shrink-0 ml-2">
-                                                    <button onClick={() => setOpinionModal({ visible: true, title: cat.name, opinions: cat.opinions })} className="bg-slate-50 px-4 py-1.5 rounded-xl border border-slate-100 text-slate-500 font-bold text-[13px] hover:bg-slate-100 transition-colors whitespace-nowrap">{cat.opinions ? cat.opinions.length : 0}건 원문 보기</button>
-                                                    <button onClick={() => { setSelectedCategory(cat); setDeepDiveInput(`이슈: ${cat.name}\n내용: ${cat.summary}`); }} className={`px-6 py-2.5 rounded-xl font-black transition-all shadow-md active:scale-95 text-[15px] ${selectedCategory?.name === cat.name ? 'bg-indigo-600 text-white' : 'bg-slate-900 text-white'}`}>이슈 선택</button>
-                                                </div>
-                                            </div>
-                                            <p className="text-slate-600 text-[17px] font-light text-justify leading-relaxed whitespace-pre-line">{cat.summary}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                                <div className="mt-8"><AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} /></div>
-                                <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel border-t max-w-[430px] mx-auto z-[60] shadow-2xl">
-                                    <div className="mb-4 text-center text-slate-600 text-[15px] font-bold">{selectedCategory ? `"${selectedCategory.name}" 선택됨` : "항목을 선택하세요"}</div>
-                                    <button disabled={!selectedCategory} onClick={() => setStep(4)} className="w-full py-5 bg-orange-500 text-white rounded-[1.2rem] font-black text-lg active:scale-95 transition-all shadow-xl shadow-orange-500/30 disabled:bg-slate-200 disabled:shadow-none">5Whys 분석 시작</button>
-                                </div>
-                            </div>
-                        )}
-
-                        {step === 4 && (
-                            <div className="pt-8 px-6 pb-48 animate-fade-in">
-                                <h2 className="text-28px font-black text-slate-800 leading-tight mb-8">분석할 <span className="gradient-text text-28px">대상 가설</span></h2>
-                                <div className="bg-white p-6 rounded-[2rem] card-shadow border border-orange-100 mb-8"><textarea value={deepDiveInput} onChange={(e) => setDeepDiveInput(e.target.value)} className="w-full h-64 outline-none text-[17px] text-slate-700 font-light resize-none leading-relaxed" /></div>
-                                <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel border-t max-w-[430px] mx-auto z-40"><button onClick={() => start5WhysAnalysis()} className="w-full py-5 bg-slate-900 text-white rounded-[1.2rem] font-black shadow-xl active:scale-95 transition-all">5Whys 원인 분석 실행</button></div>
-                            </div>
-                        )}
-
-                        {step === 5 && rootCauses.length > 0 && (
-                            <div className="pt-8 px-5 pb-64 animate-fade-in">
-                                <div className="space-y-6">
-                                    {rootCauses.map((rc) => (
-                                        <div key={rc.id} className={`p-7 rounded-[2rem] transition-all duration-300 card-shadow bg-white ${selectedCauseId === rc.id ? 'border-[3px] border-orange-500 ring-4 ring-orange-500/10' : 'border border-slate-100/60 hover:border-slate-300'}`}>
-                                            <div className="flex justify-between items-center mb-6">
-                                                <span className="bg-orange-50 text-orange-600 px-4 py-1.5 rounded-full font-bold text-[14px]">Case {rc.id}</span>
-                                                <button onClick={() => setSelectedCauseId(rc.id)} className={`px-6 py-2 rounded-xl font-black shadow-md active:scale-95 text-[15px] ${selectedCauseId === rc.id ? 'bg-orange-500 text-white' : 'bg-slate-900 text-white'}`}>원인 선택</button>
-                                            </div>
-                                            <div className="space-y-4 mb-8 text-slate-700 text-justify">
-                                                {rc.chain?.map((cStep, idx) => {
-                                                    const lines = cStep.split(/\\n|₩n|\n/);
-                                                    return (
-                                                        <div key={idx} className="mb-4">
-                                                            {lines.map((line, lidx) => (<span key={lidx} className={lidx === 0 ? 'font-black text-slate-900 block text-[17px] mb-1' : 'block font-normal text-slate-600 leading-relaxed text-[16px]'}>{line}</span>))}
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                            <div className="pt-6 border-t border-slate-100"><div className="inline-block bg-orange-100 text-orange-600 px-3 py-1 rounded-md text-[12px] font-black mb-3 uppercase">Real Cause</div><p className="text-[18px] font-bold text-slate-800 leading-relaxed">{rc.realCause}</p></div>
-                                        </div>
-                                    ))}
-                                </div>
-                                <div className="mt-8"><AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} /></div>
-                                <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel max-w-[430px] mx-auto z-40 border-t shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
-                                    <div className="grid grid-cols-2 gap-2 mb-5">
-                                        {['사용 불편 관점', '기술 진화 관점', '심미적 관점', '비지니스 관점'].map(p => (
-                                            <button key={p} onClick={() => changePerspective(p)} className={`py-3 rounded-xl text-[14px] font-bold border transition-all active:scale-95 ${perspective === p ? 'bg-orange-50 border-orange-400 text-orange-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>{p}</button>
-                                        ))}
-                                    </div>
-                                    <button onClick={() => exploreDeepHypotheses(selectedCauseId)} disabled={selectedCauseId === null} className="w-full py-5 rounded-[1.2rem] font-black bg-slate-900 text-white shadow-xl active:scale-95 transition-all disabled:bg-slate-200 disabled:shadow-none">디자인 인사이트 도출</button>
-                                </div>
-                            </div>
-                        )}
-
-                        {step === 6 && deepHypotheses.length > 0 && (
-                            <div className="pt-8 px-5 pb-80 animate-fade-in">
-                                <div className="grid gap-6">
-                                    {deepHypotheses.map(h => (
-                                        <div key={h.id} className={`p-8 rounded-[2.5rem] transition-all duration-300 card-shadow bg-white ${selectedDeepHypoId === h.id ? 'border-[3px] border-indigo-500 ring-4 ring-indigo-500/10' : 'border border-slate-100/60 hover:border-slate-300'}`}>
-                                            <div className="flex flex-col mb-6 border-b border-slate-100 pb-5">
-                                                <div className="flex justify-end mb-4"><button onClick={() => setSelectedDeepHypoId(h.id)} className={`px-7 py-2.5 rounded-xl font-black shadow-md active:scale-95 text-[15px] ${selectedDeepHypoId === h.id ? 'bg-slate-900 text-white shadow-slate-900/30 ring-2 ring-offset-2 ring-slate-900' : 'bg-slate-800 text-white hover:bg-slate-700'}`}>가설 선택</button></div>
-                                                <h3 className="text-[22px] font-black text-slate-900 leading-snug">{h.title}</h3>
-                                            </div>
-                                            <div className="space-y-8">
-                                                {[{t:'Step 1. 표면적 원인 대처', c:h.step1}, {t:'Step 2. 맥락적 원인 재해석', c:h.step2}, {t:'Step 3. 맥락적 인사이트 제안', c:h.step3}].map((item, idx) => (
-                                                    <div key={idx} className="relative">
-                                                        <div className="absolute left-0 top-2 w-1.5 h-1.5 rounded-full bg-orange-400"></div>
-                                                        <p className="text-[17px] font-bold text-slate-800 mb-2 pl-4 tracking-wide">{item.t}</p>
-                                                        <p className="text-[17px] text-slate-600 font-light text-justify leading-relaxed whitespace-pre-line pl-4">{item.c}</p>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                                <div className="mt-8"><AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} /></div>
-                                <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel border-t border-slate-200/50 max-w-[430px] mx-auto z-40 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
-                                    <div className="grid grid-cols-2 gap-2 mb-5">
-                                        {['사용 불편 관점', '기술 진화 관점', '심미적 관점', '비지니스 관점'].map(p => (
-                                            <button key={p} onClick={() => changePerspectiveInStep6(p)} className={`py-3 rounded-xl font-bold border transition-all active:scale-95 ${perspective === p ? 'bg-indigo-50 border-indigo-400 text-indigo-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>{p}</button>
-                                        ))}
-                                    </div>
-                                    <button onClick={() => generateFinalReport(selectedDeepHypoId)} disabled={selectedDeepHypoId === null} className="w-full py-5 bg-slate-900 text-white rounded-[1.2rem] font-black shadow-xl active:scale-95 transition-all disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none">최종 통합 리포트 생성</button>
-                                </div>
-                            </div>
-                        )}
-
-                        {step === 7 && finalBrief && (
-                            <div className="pt-8 px-5 pb-48 animate-fade-in">
-                                <div className="space-y-6">
-                                    {[finalBrief.step1, finalBrief.step2, finalBrief.step3].map((s, i) => (
-                                        <div key={i} className="bg-white p-8 rounded-[2.5rem] card-shadow border border-slate-100/60 text-justify">
-                                            <div className="flex items-center gap-3 mb-4"><div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-black text-[14px]">{i+1}</div><h3 className="text-[18px] font-black text-slate-800 tracking-wide">{s.title === "5Why 진짜 원인" ? "5Whys 분석" : s.title}</h3></div>
-                                            <p className="text-[17px] text-slate-600 font-light leading-relaxed whitespace-pre-line pl-1">{s.content}</p>
-                                        </div>
-                                    ))}
-                                    <div className="bg-slate-900 p-9 rounded-[2.5rem] shadow-2xl shadow-slate-900/30 relative overflow-hidden mt-8">
-                                        <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-blue-500/20 to-indigo-500/20 rounded-full blur-3xl"></div>
-                                        <div className="inline-block bg-indigo-500/20 border border-indigo-500/30 px-5 py-2 rounded-full text-[13px] font-black uppercase tracking-widest text-indigo-300 mb-6 relative z-10">전략적 해결 방향</div>
-                                        <p className="text-[18px] text-slate-100 font-light leading-[1.8] text-justify relative z-10 whitespace-pre-line">{finalBrief.step4?.content?.replace(/^["']|["']$/g, '')}</p>
-                                    </div>
-                                </div>
-                                <div className="mt-8"><AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} /></div>
-                                <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel max-w-[430px] mx-auto border-t border-slate-200/50 z-40">
-                                    <button onClick={copyAccumulatedContent} className="w-full py-5 bg-blue-600 hover:bg-blue-500 text-white rounded-[1.2rem] font-black text-[17px] shadow-xl shadow-blue-600/30 active:scale-95 transition-all">전체 리포트 복사하기</button>
-                                </div>
-                            </div>
-                        )}
-                    </main>
-
-                    {opinionModal.visible && (
-                        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-slate-900/60 p-5 backdrop-blur-sm animate-fade-in">
-                            <div className="bg-white text-slate-800 p-8 rounded-[2.5rem] w-full max-w-[390px] shadow-2xl relative border border-slate-100 overflow-hidden flex flex-col max-h-[85vh]">
-                                <div className="absolute top-4 right-4 flex items-center z-10">
-                                    <button onClick={() => copyRawDataModal(opinionModal.opinions.join('\n'))} className="w-12 h-12 flex items-center justify-center text-blue-500 hover:bg-blue-50 hover:text-blue-600 rounded-full transition-colors" title="텍스트 복사"><Icon name="Copy" size={24} /></button>
-                                    <button onClick={() => setOpinionModal({ visible: false, title: "", opinions: [] })} className="w-12 h-12 flex items-center justify-center text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-full transition-colors ml-1"><Icon name="X" size={26} /></button>
-                                </div>
-                                <div className="mb-6 pr-20 relative z-10 mt-2">
-                                    <div className="flex items-center gap-2 mb-3"><Icon name="Quote" className="text-blue-500 w-5 h-5" /><span className="text-[13px] font-black text-blue-500 uppercase tracking-widest">Raw Data</span></div>
-                                    <h4 className="text-[20px] font-black text-slate-900 leading-tight">"{opinionModal.title}"</h4>
-                                </div>
-                                <div className="space-y-3 overflow-y-auto pr-2 no-scrollbar flex-1 relative z-10">
-                                    {opinionModal.opinions.map((op, idx) => (
-                                        <div key={idx} className="p-4 bg-slate-50 rounded-2xl border border-slate-100/80 text-justify whitespace-pre-line hover:border-slate-200 transition-colors">
-                                            <p className="text-[16px] font-light leading-relaxed text-slate-700">"{op}"</p>
-                                        </div>
-                                    ))}
-                                </div>
-                                <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-white to-transparent pointer-events-none z-20"></div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            );
-        };
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
-</body>
-</html>
+                                <div className="bg-slate-9
