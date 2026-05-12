@@ -18,13 +18,6 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        const safeGetItem = (key) => {
-            try { return localStorage.getItem(key); } catch (e) { return null; }
-        };
-        const safeSetItem = (key, value) => {
-            try { localStorage.setItem(key, value); } catch (e) { console.warn("Storage restricted"); }
-        };
-
         const Icon = ({ name, size = 24, className = "" }) => {
             const iconRef = useRef(null);
             useEffect(() => {
@@ -38,7 +31,6 @@
         };
 
         const MODEL_NAME = "gemini-flash-latest"; 
-        const SESSION_KEY = "gemini_api_key_ux_hub_integrated";
 
         const PROMPTS = {
             STEP1: (data, note) => `Data: "${data}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n분석 요약(summary)은 한국어로 작성하십시오. 답변 내에 ** 강조 표시를 절대로 포함하지 마십시오.\n[중요1]: "EXECUTIVE SUMMARY"와 각 카테고리별 "summary"의 분석 내용은 반드시 각각 4줄에서 5줄 분량으로만 작성하십시오.\n[중요2]: "opinions" 배열에는 해당 카테고리의 요약 내용에 해당되는 실제 원문(Raw Data) 문장들만 단 하나도 누락 없이 100% 모두 포함해야 합니다. 절대로 번역하거나 요약, 변형하지 말고, 원래 입력된 원문 문장 텍스트 '그대로' 추출하십시오.\n[중요3]: "count" 값은 반드시 "opinions" 배열에 추출된 원문 문장의 총 개수와 정확히 일치해야 합니다.\n[중요4]: 분석 속도를 극대화하기 위해 불필요한 설명이나 수식어를 생략하고 오직 JSON 데이터만 즉시 출력하십시오.\nProvide JSON: {"summary": "EXECUTIVE SUMMARY", "categories": [{"name": "카테고리명", "summary": "분석 내용", "count": 0, "opinions": []}]}`,
@@ -110,7 +102,7 @@
         };
 
         const App = () => {
-            const [apiKey, setApiKey] = useState(safeGetItem(SESSION_KEY) || "");
+            const [apiKey, setApiKey] = useState("");
             const [step, setStep] = useState(0); 
             const [rawData, setRawData] = useState("");
             const [itemCount, setItemCount] = useState(0);
@@ -207,7 +199,7 @@
                         body: JSON.stringify({ contents: [{ parts: [{ text: "OK" }] }] })
                     });
                     if (response.ok) {
-                        setApiKey(inputKey); safeSetItem(SESSION_KEY, inputKey); setStep(1); setError(null);
+                        setApiKey(inputKey); setStep(1); setError(null);
                     } else throw new Error();
                 } catch { setError("API 인증 실패. 키를 확인해 주세요."); }
                 finally { setIsAnalyzing(false); }
@@ -360,11 +352,13 @@
                         </div>
                     )}
 
-                    <Header step={step} setStep={setStep} copyAccumulatedContent={copyAccumulatedContent} resetAll={resetAll} apiKey={apiKey} step1Result={step1Result} step2Result={step2Result} selectedCategory={selectedCategory} rootCauses={rootCauses} deepHypotheses={deepHypotheses} finalBrief={finalBrief} />
+                    {step > 0 && (
+                        <Header step={step} setStep={setStep} copyAccumulatedContent={copyAccumulatedContent} resetAll={resetAll} apiKey={apiKey} step1Result={step1Result} step2Result={step2Result} selectedCategory={selectedCategory} rootCauses={rootCauses} deepHypotheses={deepHypotheses} finalBrief={finalBrief} />
+                    )}
 
                     <main id="main-content" className={step === 0 ? "" : "pt-16"}>
                         {step === 0 && (
-                            <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-gradient-to-b from-[#e0f2fe] to-[#f8fafc] text-center animate-fade-in">
+                            <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-gradient-to-b from-[#e0f2fe] via-white to-[#e0f2fe] text-center animate-fade-in">
                                 <div className="w-full mb-10 px-2 mt-[-10vh]">
                                     <h1 className="font-black tracking-tight text-[#0f172a] leading-[1.2] text-[36px] mb-4">Design Research<br/>Interview & Insight</h1>
                                     <p className="text-slate-500 font-bold text-[16px]">디자인 리서치 자동화 도구</p>
@@ -373,7 +367,7 @@
                                     <div>
                                         <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-blue-600 font-bold text-[15px] hover:text-blue-700 transition-colors">API Key 발급받기</a>
                                     </div>
-                                    <input type="password" id="api-key-input" defaultValue={apiKey} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-center outline-none focus:border-blue-400 transition-colors text-[15px] font-medium text-slate-700 placeholder:text-slate-400" placeholder="Gemini API Key 입력" />
+                                    <input type="password" id="api-key-input" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-center outline-none focus:border-blue-400 transition-colors text-[15px] font-medium text-slate-700 placeholder:text-slate-400" placeholder="Gemini API Key 입력" />
                                     <button onClick={() => validateKey(document.getElementById('api-key-input').value)} className="w-full py-4 bg-[#0f172a] hover:bg-slate-800 text-white rounded-xl font-black text-[16px] shadow-lg active:scale-95 transition-all">시작하기</button>
                                 </div>
                             </div>
@@ -497,7 +491,7 @@
                                             <button key={p} onClick={() => changePerspective(p)} className={`py-3 rounded-xl text-[14px] font-bold border transition-all active:scale-95 ${perspective === p ? 'bg-orange-50 border-orange-400 text-orange-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>{p}</button>
                                         ))}
                                     </div>
-                                    <button onClick={() => exploreDeepHypotheses(selectedCauseId)} disabled={selectedCauseId === null} className="w-full py-5 rounded-[1.2rem] font-black bg-slate-900 text-white shadow-xl active:scale-95 transition-all disabled:bg-slate-200 disabled:shadow-none">디자인 인사이트 도출</button>
+                                    <button onClick={() => exploreDeepHypotheses(selectedCauseId)} disabled={selectedCauseId === null} className="w-full py-5 rounded-[1.2rem] font-black bg-slate-900 text-white shadow-xl active:scale-95 transition-all disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none">디자인 인사이트 도출</button>
                                 </div>
                             </div>
                         )}
