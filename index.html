@@ -42,13 +42,11 @@
 
         const PROMPTS = {
             STEP1: (data, note) => {
-                // 토큰 제한 및 에러 방지를 위해 원문에 고유 ID를 부여하여 AI에게 전달
                 const numberedData = data.split('\n').map((line, i) => `[ID:${i}] ${line}`).join('\n');
                 return `Data: "${numberedData}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n분석 요약(summary)은 한국어로 작성하십시오. 답변 내에 ** 강조 표시를 절대로 포함하지 마십시오.\n[중요1]: "EXECUTIVE SUMMARY"와 각 카테고리별 "summary"의 분석 내용은 반드시 각각 4줄에서 5줄 분량으로만 작성하십시오.\n[중요2]: "opinions" 배열에는 원문 텍스트 전체를 적지 말고, 해당 카테고리에 속하는 원문의 고유 번호(ID)만 숫자 배열 형식으로 100% 모두 포함하십시오. (예: [0, 3, 15, 202]). 절대로 누락시키지 마십시오.\n[중요3]: "count" 값은 반드시 "opinions" 배열에 추출된 원문 ID의 총 개수와 정확히 일치해야 합니다.\n[중요4]: 분석 속도를 극대화하기 위해 불필요한 설명이나 수식어를 생략하고 오직 JSON 데이터만 즉시 출력하십시오.\nProvide JSON: {"summary": "EXECUTIVE SUMMARY", "categories": [{"name": "카테고리명", "summary": "분석 내용", "count": 0, "opinions": []}]}`;
             },
             
             STEP2: (data, note) => {
-                // 토큰 제한 및 에러 방지를 위해 원문에 고유 ID를 부여하여 AI에게 전달
                 const numberedData = data.split('\n').map((line, i) => `[ID:${i}] ${line}`).join('\n');
                 return `Data: "${numberedData}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n디자인 및 UX 측면에서 매우 정교하게 세분화된 카테고라이징을 수행하십시오. 분석 요약(summary)은 한국어로 작성하며 ** 강조 표시는 금지합니다.\n[중요1]: "UX/DESIGN SUMMARY" 및 각 이슈별 "summary" 분석 내용은 반드시 4줄에서 5줄 분량으로만 작성하십시오.\n[중요2]: "opinions" 배열에는 원문 텍스트 전체를 적지 말고, 해당 카테고리에 속하는 원문의 고유 번호(ID)만 숫자 배열 형식으로 100% 모두 포함하십시오. (예: [0, 3, 15, 202]). 절대로 누락시키지 마십시오.\n[중요3]: "count" 값은 반드시 "opinions" 배열에 추출된 원문 ID의 총 개수와 정확히 일치해야 합니다.\n[중요4]: 분석 속도를 극대화하기 위해 불필요한 설명이나 수식어를 생략하고 오직 JSON 데이터만 즉시 출력하십시오.\nProvide JSON: {"summary": "UX/DESIGN SUMMARY", "uxCategories": [{"name": "이슈명", "summary": "분석 내용", "count": 0, "opinions": []}]}`;
             },
@@ -118,7 +116,7 @@
         };
 
         const App = () => {
-            const [apiKey, setApiKey] = useState(safeGetItem(SESSION_KEY) || "");
+            const [apiKey, setApiKey] = useState("");
             const [step, setStep] = useState(0); 
             const [rawData, setRawData] = useState("");
             const [itemCount, setItemCount] = useState(0);
@@ -186,7 +184,6 @@
                         const payload = {
                             contents: [{ parts: [{ text: prompt }] }],
                             generationConfig: isJson ? { responseMimeType: "application/json" } : {},
-                            // 리뷰 데이터 분석 시 AI 안전 필터에 의한 차단을 방지하기 위해 BLOCK_NONE 적용
                             safetySettings: [
                                 { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
                                 { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
@@ -222,7 +219,7 @@
                         body: JSON.stringify({ contents: [{ parts: [{ text: "OK" }] }] })
                     });
                     if (response.ok) {
-                        setApiKey(inputKey); safeSetItem(SESSION_KEY, inputKey); setStep(1); setError(null);
+                        setApiKey(inputKey); setStep(1); setError(null);
                     } else throw new Error();
                 } catch { setError("API 인증 실패. 키를 확인해 주세요."); }
                 finally { setIsAnalyzing(false); }
@@ -241,7 +238,6 @@
                 } catch { setError("오류 발생"); }
             };
 
-            // 프론트엔드 인덱스 매핑: AI가 추출한 번호(ID)를 기반으로 화면에는 원래 텍스트 전체를 보여줌
             const handleStep1Analysis = async (note = null) => {
                 setLoadingMsg("1단계 분석 중...");
                 try {
@@ -400,8 +396,8 @@
                         {step === 0 && (
                             <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-gradient-to-b from-[#e0f2fe] via-white to-[#e0f2fe] text-center animate-fade-in">
                                 <div className="w-full mb-10 px-2 mt-[-10vh]">
-                                    <h1 className="font-black tracking-tight text-[#0f172a] leading-[1.2] text-[36px] mb-4">Design Research<br/>Interview & Insight</h1>
-                                    <p className="text-slate-500 font-bold text-[16px]">디자인 리서치 자동화 도구</p>
+                                    <h1 className="font-black tracking-tight text-[#0f172a] leading-[1.2] text-[36px] mb-4">User Voice Analysis<br/>& Insight</h1>
+                                    <p className="text-slate-500 font-bold text-[16px]">사용자 리뷰 데이터 분석 자동화 도구</p>
                                 </div>
                                 <div className="w-full bg-white p-8 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] space-y-6">
                                     <div>
@@ -558,10 +554,10 @@
                                     ))}
                                 </div>
                                 <div className="mt-8"><AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} /></div>
-                                <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel border-t max-w-[430px] mx-auto z-40 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
+                                <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel border-t border-slate-200/50 max-w-[430px] mx-auto z-40 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
                                     <div className="grid grid-cols-2 gap-2 mb-5">
                                         {['사용 불편 관점', '기술 진화 관점', '심미적 관점', '비지니스 관점'].map(p => (
-                                            <button key={p} onClick={() => changePerspectiveInStep6(p)} className={`py-3 rounded-xl font-bold border transition-all text-[14px] active:scale-95 ${perspective === p ? 'bg-indigo-50 border-indigo-400 text-indigo-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>{p}</button>
+                                            <button key={p} onClick={() => changePerspectiveInStep6(p)} className={`py-3 rounded-xl font-bold border transition-all active:scale-95 ${perspective === p ? 'bg-indigo-50 border-indigo-400 text-indigo-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>{p}</button>
                                         ))}
                                     </div>
                                     <button onClick={() => generateFinalReport(selectedDeepHypoId)} disabled={selectedDeepHypoId === null} className="w-full py-5 bg-slate-900 text-white rounded-[1.2rem] font-black shadow-xl active:scale-95 transition-all disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none">최종 통합 리포트 생성</button>
