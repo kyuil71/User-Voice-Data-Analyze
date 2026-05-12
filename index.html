@@ -40,15 +40,59 @@
         const MODEL_NAME = "gemini-flash-latest"; 
         const SESSION_KEY = "gemini_api_key_ux_hub_integrated";
 
+        // 구조화된 JSON 응답을 강제하기 위한 Schema 정의
+        const SCHEMAS = {
+            STEP1: {
+                type: "OBJECT",
+                properties: {
+                    summary: { type: "STRING" },
+                    categories: {
+                        type: "ARRAY",
+                        items: {
+                            type: "OBJECT",
+                            properties: {
+                                name: { type: "STRING" },
+                                summary: { type: "STRING" },
+                                count: { type: "INTEGER" },
+                                opinions: { type: "ARRAY", items: { type: "INTEGER" } }
+                            },
+                            required: ["name", "summary", "count", "opinions"]
+                        }
+                    }
+                },
+                required: ["summary", "categories"]
+            },
+            STEP2: {
+                type: "OBJECT",
+                properties: {
+                    summary: { type: "STRING" },
+                    uxCategories: {
+                        type: "ARRAY",
+                        items: {
+                            type: "OBJECT",
+                            properties: {
+                                name: { type: "STRING" },
+                                summary: { type: "STRING" },
+                                count: { type: "INTEGER" },
+                                opinions: { type: "ARRAY", items: { type: "INTEGER" } }
+                            },
+                            required: ["name", "summary", "count", "opinions"]
+                        }
+                    }
+                },
+                required: ["summary", "uxCategories"]
+            }
+        };
+
         const PROMPTS = {
             STEP1: (data, note) => {
                 const numberedData = data.split('\n').map((line, i) => `[ID:${i}] ${line}`).join('\n');
-                return `Data: "${numberedData}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n분석 요약(summary)은 한국어로 작성하십시오. 답변 내에 ** 강조 표시를 절대로 포함하지 마십시오.\n[중요1]: "EXECUTIVE SUMMARY"와 각 카테고리별 "summary"의 분석 내용은 반드시 각각 4줄에서 5줄 분량으로만 작성하십시오.\n[중요2]: "opinions" 배열에는 원문 텍스트 전체를 적지 말고, 해당 카테고리에 속하는 원문의 고유 번호(ID)만 숫자 배열 형식으로 100% 모두 포함하십시오. (예: [0, 3, 15, 202]). 절대로 누락시키지 마십시오.\n[중요3]: "count" 값은 반드시 "opinions" 배열에 추출된 원문 ID의 총 개수와 정확히 일치해야 합니다.\n[중요4]: 분석 속도를 극대화하기 위해 불필요한 설명이나 수식어를 생략하고 오직 JSON 데이터만 즉시 출력하십시오.\nProvide JSON: {"summary": "EXECUTIVE SUMMARY", "categories": [{"name": "카테고리명", "summary": "분석 내용", "count": 0, "opinions": []}]}`;
+                return `Data: "${numberedData}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n분석 요약(summary)은 한국어로 작성하십시오. 답변 내에 ** 강조 표시를 절대로 포함하지 마십시오.\n[중요1]: "EXECUTIVE SUMMARY"와 각 카테고리별 "summary"의 분석 내용은 반드시 각각 4줄에서 5줄 분량으로만 작성하십시오.\n[중요2]: "opinions" 배열에는 원문 텍스트 전체를 적지 말고, 해당 카테고리에 속하는 원문의 고유 번호(ID)만 숫자 형식으로 100% 모두 포함하십시오. 절대로 누락시키지 마십시오.\n[중요3]: "count" 값은 반드시 "opinions" 배열에 추출된 원문 ID의 총 개수와 정확히 일치해야 합니다.`;
             },
             
             STEP2: (data, note) => {
                 const numberedData = data.split('\n').map((line, i) => `[ID:${i}] ${line}`).join('\n');
-                return `Data: "${numberedData}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n디자인 및 UX 측면에서 매우 정교하게 세분화된 카테고라이징을 수행하십시오. 분석 요약(summary)은 한국어로 작성하며 ** 강조 표시는 금지합니다.\n[중요1]: "UX/DESIGN SUMMARY" 및 각 이슈별 "summary" 분석 내용은 반드시 4줄에서 5줄 분량으로만 작성하십시오.\n[중요2]: "opinions" 배열에는 원문 텍스트 전체를 적지 말고, 해당 카테고리에 속하는 원문의 고유 번호(ID)만 숫자 배열 형식으로 100% 모두 포함하십시오. (예: [0, 3, 15, 202]). 절대로 누락시키지 마십시오.\n[중요3]: "count" 값은 반드시 "opinions" 배열에 추출된 원문 ID의 총 개수와 정확히 일치해야 합니다.\n[중요4]: 분석 속도를 극대화하기 위해 불필요한 설명이나 수식어를 생략하고 오직 JSON 데이터만 즉시 출력하십시오.\nProvide JSON: {"summary": "UX/DESIGN SUMMARY", "uxCategories": [{"name": "이슈명", "summary": "분석 내용", "count": 0, "opinions": []}]}`;
+                return `Data: "${numberedData}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n디자인 및 UX 측면에서 매우 정교하게 세분화된 카테고라이징을 수행하십시오. 분석 요약(summary)은 한국어로 작성하며 ** 강조 표시는 금지합니다.\n[중요1]: "UX/DESIGN SUMMARY" 및 각 이슈별 "summary" 분석 내용은 반드시 4줄에서 5줄 분량으로만 작성하십시오.\n[중요2]: "opinions" 배열에는 원문 텍스트 전체를 적지 말고, 해당 카테고리에 속하는 원문의 고유 번호(ID)만 숫자 형식으로 100% 모두 포함하십시오. 절대로 누락시키지 마십시오.\n[중요3]: "count" 값은 반드시 "opinions" 배열에 추출된 원문 ID의 총 개수와 정확히 일치해야 합니다.`;
             },
 
             ANALYSIS: (perspective, input, note) => `You are a Senior Root Cause Analyst. Strictly lens: [${perspective}]. \n${note ? `[Revision Request]: ${note}` : ""}\nDerivate 3 to 6 distinct 5Why chains. Format: Why [N]\\n왜 [질문]?\\n→ [답변]\\n핵심: [요약].\n[중요]: 오직 JSON 형식으로만 즉시 출력하십시오.\nReturn ONLY a JSON: { "rootCauses": [ { "id": 1, "chain": ["Why 1\\\\n왜...\\\\n→...\\\\n핵심:...","Why 2...","Why 3...","Why 4...","Why 5..."], "realCause": "..." } ] }`,
@@ -176,14 +220,22 @@
                 e.target.value = null; 
             };
 
-            const callGemini = async (prompt, isJson = true, systemInstruction = null) => {
+            const callGemini = async (prompt, isJson = true, systemInstruction = null, schema = null) => {
                 setIsAnalyzing(true);
                 let delay = 500; 
                 for (let i = 0; i < 5; i++) {
                     try {
+                        const generationConfig = { temperature: 0.1 };
+                        if (isJson) {
+                            generationConfig.responseMimeType = "application/json";
+                            if (schema) {
+                                generationConfig.responseSchema = schema;
+                            }
+                        }
+
                         const payload = {
                             contents: [{ parts: [{ text: prompt }] }],
-                            generationConfig: isJson ? { responseMimeType: "application/json" } : {},
+                            generationConfig: generationConfig,
                             safetySettings: [
                                 { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
                                 { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
@@ -199,7 +251,7 @@
                         if (!response.ok) throw new Error(`API 오류 (${response.status})`);
                         const result = await response.json();
                         const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
-                        const jsonStr = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
+                        const jsonStr = isJson ? text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1) : text;
                         setIsAnalyzing(false);
                         return isJson ? JSON.parse(jsonStr) : text;
                     } catch (err) {
@@ -241,7 +293,7 @@
             const handleStep1Analysis = async (note = null) => {
                 setLoadingMsg("1단계 분석 중...");
                 try {
-                    const res = await callGemini(PROMPTS.STEP1(rawData, note));
+                    const res = await callGemini(PROMPTS.STEP1(rawData, note), true, null, SCHEMAS.STEP1);
                     const lines = rawData.split('\n');
                     if(res && res.categories) {
                         res.categories.forEach(cat => {
@@ -257,7 +309,7 @@
             const handleStep2Analysis = async (note = null) => {
                 setLoadingMsg("2단계 분석 중...");
                 try {
-                    const res = await callGemini(PROMPTS.STEP2(rawData, note));
+                    const res = await callGemini(PROMPTS.STEP2(rawData, note), true, null, SCHEMAS.STEP2);
                     const lines = rawData.split('\n');
                     if(res && res.uxCategories) {
                         res.uxCategories.forEach(cat => {
