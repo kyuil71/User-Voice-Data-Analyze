@@ -4,12 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>User Voice Analysis & Design Insight</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React, ReactDOM, Babel -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- XLSX Library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- 외부 스타일시트 연결 -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body class="bg-[#F8FAFC]">
@@ -61,7 +66,7 @@
 
             ANALYSIS: (perspective, input, note) => `You are a Senior Root Cause Analyst. Strictly lens: [${perspective}]. \n${note ? `[Revision Request]: ${note}` : ""}\nDerivate 3 to 6 distinct 5Why chains. Format: Why [N]\\n왜 [질문]?\\n→ [답변]\\n핵심: [대학생이 쉽게 이해할 수 있는 명확한 요약].\n[중요]: 오직 JSON 형식으로만 즉시 출력하십시오.\nReturn ONLY a JSON: { "rootCauses": [ { "id": 1, "chain": ["Why 1\\\\n왜...\\\\n→...\\\\n핵심:...","Why 2...","Why 3...","Why 4...","Why 5..."], "realCause": "..." } ] }`,
             
-            HYPOTHESIS: (perspective, input, cause, note) => `# Role: 전문 UX 전략 컨설턴트. # Context: 도출된 '5Why 진짜 원인'과 선택된 [${perspective}]을 바탕으로 확장 가설 제시. \n${note ? `[수정 요청 반영]: ${note}` : ""}\n[중요1]: 반드시 [${perspective}]에 철저히 입각하여, 이 관점만의 독특하고 차별화된 전략적 해결책을 도출해야 합니다.\n[중요2]: 반드시 정확히 2개의 제안(가설)만 생성하십시오.\n[중요3]: Step 1, Step 2, Step 3 각각의 내용은 반드시 3~4줄 분량으로, 대학생이 쉽게 이해할 수 있는 평이하고 명확한 수준으로 매우 깊이 있고 풍부한 인사이트가 담기도록 상세하게 작성하십시오.\n[중요4]: 응답 속도 최적화를 위해 오직 JSON 형식으로만 즉시 출력하십시오.\nReturn ONLY a JSON: { "hypotheses": [ { "id": 1, "title": "...", "step1": "...", "step2": "...", "step3": "..." }, { "id": 2, "title": "...", "step1": "...", "step2": "...", "step3": "..." } ] }`,
+            HYPOTHESIS: (perspective, input, cause, note) => `# Role: 전문 UX 전략 컨설턴트. # Context: 도출된 '5Why 진짜 원인'과 선택된 [${perspective}]을 바탕으로 확장 가설 제시. \n${note ? `[수정 요청 반영]: ${note}` : ""}\n[중요1]: 반드시 [${perspective}]에 철저히 입각하여, 이 관점만의 독특하고 차별화된 전략적 해결책을 도출해야 합니다.\n[중요2]: 반드시 정확히 2개의 제안(가설)만 생성하십시오.\n[중요3]: Step 1(VOC 기반 이슈), Step 2(디자인 솔루션 제안), Step 3(사용자 가치 및 기대 효과) 각각의 내용은 반드시 3~4줄 분량으로, 대학생이 쉽게 이해할 수 있는 평이하고 명확한 수준으로 매우 깊이 있고 풍부한 인사이트가 담기도록 상세하게 작성하십시오.\n[중요4]: 응답 속도 최적화를 위해 오직 JSON 형식으로만 즉시 출력하십시오.\nReturn ONLY a JSON: { "hypotheses": [ { "id": 1, "title": "...", "step1": "...", "step2": "...", "step3": "..." }, { "id": 2, "title": "...", "step1": "...", "step2": "...", "step3": "..." } ] }`,
             
             SUMMARY: (input, cause, hypo, note) => `You are a Senior Insight Strategist.\n${note ? `[수정 요청 반영]: ${note}\n` : ""}[중요1]: "step1"(분석 대상 가설), "step2"(5Whys 분석), "step3"(확장된 문제 가설)의 분석 결과는 각각 반드시 3~4줄 분량으로, 대학생이 쉽게 이해할 수 있는 평이하고 명확한 어휘를 사용하여 풍부하고 상세하게 작성해 주십시오. 단, step2는 Why 1~5를 나열하지 말고 핵심 원인 중심으로 요약해야 합니다.\n[중요2]: "step4" (전략적 해결 방향)의 내용 역시 전체 3~4줄 분량의 풍부한 내용이 되도록 하며, 처음과 끝에 따옴표를 넣지 말고 반드시 아래와 같이 줄바꿈(\\n)을 적용하여 번호순으로 작성해 주십시오.\n1. 내용\n2. 내용\n3. 내용\n[중요3]: 오직 JSON 형식으로만 출력하십시오.\nReturn ONLY a JSON object:\n{\n  "finalReport": {\n    "step1": { "title": "분석 대상 가설", "content": "..." },\n    "step2": { "title": "5Whys 분석", "content": "핵심 원인 3줄 요약..." },\n    "step3": { "title": "확장된 문제 가설", "content": "..." },\n    "step4": { "title": "전략적 해결 방향", "content": "1. ...\\n2. ...\\n3. ..." }\n  }\n}`
         };
@@ -113,7 +118,6 @@
                         <h1 className="font-bold text-[18px] text-slate-800 truncate">{getDynamicTitle()}</h1>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
-                        {/* 프로젝트 저장 (다운로드 아이콘) */}
                         <button onClick={exportProject} className="p-2 rounded-full hover:bg-slate-100/80 shrink-0" title="프로젝트 PC에 저장">
                             <Icon name="Download" size={20} className="text-blue-500" />
                         </button>
@@ -150,7 +154,6 @@
             const [qaInput, setQaInput] = useState("");
             const [opinionModal, setOpinionModal] = useState({ visible: false, title: "", opinions: [] });
 
-            // [기능 추가] 현재 상태를 JSON 파일로 다운로드
             const exportProject = () => {
                 const projectData = {
                     version: "1.0",
@@ -173,7 +176,6 @@
                 alert("프로젝트가 성공적으로 PC에 저장되었습니다.");
             };
 
-            // [기능 추가] JSON 파일을 읽어와 상태 복원
             const importProject = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -206,19 +208,6 @@
                 e.target.value = null; 
             };
 
-            // [기능 추가] 상태 변경 시 자동 임시 저장
-            useEffect(() => {
-                if (step > 0) {
-                    const stateToSave = {
-                        step, rawData, itemCount, perspective, deepDiveInput,
-                        step1Result, step2Result, selectedCategory, rootCauses,
-                        selectedCauseId, deepHypotheses, selectedDeepHypoId, finalBrief
-                    };
-                    safeSetItem("ux_insight_autosave", JSON.stringify(stateToSave));
-                }
-            }, [step, rawData, itemCount, perspective, deepDiveInput, step1Result, step2Result, selectedCategory, rootCauses, selectedCauseId, deepHypotheses, selectedDeepHypoId, finalBrief]);
-
-            // [기능 추가] 초기 접속 시 임시 저장 내역 불러오기
             useEffect(() => {
                 const saved = safeGetItem("ux_insight_autosave");
                 if (saved && step === 0 && apiKey) { 
@@ -242,6 +231,17 @@
                     }
                 }
             }, [step, apiKey]);
+
+            useEffect(() => {
+                if (step > 0) {
+                    const stateToSave = {
+                        step, rawData, itemCount, perspective, deepDiveInput,
+                        step1Result, step2Result, selectedCategory, rootCauses,
+                        selectedCauseId, deepHypotheses, selectedDeepHypoId, finalBrief
+                    };
+                    safeSetItem("ux_insight_autosave", JSON.stringify(stateToSave));
+                }
+            }, [step, rawData, itemCount, perspective, deepDiveInput, step1Result, step2Result, selectedCategory, rootCauses, selectedCauseId, deepHypotheses, selectedDeepHypoId, finalBrief]);
 
             useEffect(() => { setTimeout(() => window.scrollTo(0,0), 50); }, [step]);
 
@@ -349,29 +349,18 @@
                 try {
                     const lines = rawData.split('\n');
                     const planRes = await callGemini(PROMPTS.STEP1_PLAN(rawData, note), true, null, false);
-                    
                     if (!planRes || !planRes.categoryNames) throw new Error("분석 플랜 생성 실패");
-
                     const detailPromises = planRes.categoryNames.map(async (catName) => {
                         const detailRes = await callGemini(PROMPTS.STEP1_DETAIL(rawData, catName), true, null, false);
                         const opinionString = (detailRes.opinions || "").toString();
                         const opinionArray = opinionString.split(',').map(id => lines[parseInt(id.trim(), 10)]).filter(Boolean);
-                        return {
-                            name: catName,
-                            summary: detailRes.summary,
-                            count: detailRes.count,
-                            opinions: opinionArray
-                        };
+                        return { name: catName, summary: detailRes.summary, count: detailRes.count, opinions: opinionArray };
                     });
-
                     const categories = await Promise.all(detailPromises);
                     setStep1Result({ summary: planRes.summary, categories }); 
                     setStep(2);
-                } catch { 
-                    setError("분석 실패. 데이터 형식을 확인해 주세요."); 
-                } finally {
-                    setIsAnalyzing(false);
-                }
+                } catch { setError("분석 실패. 데이터 형식을 확인해 주세요."); }
+                finally { setIsAnalyzing(false); }
             };
 
             const handleStep2Analysis = async (note = null) => {
@@ -380,29 +369,18 @@
                 try {
                     const lines = rawData.split('\n');
                     const planRes = await callGemini(PROMPTS.STEP2_PLAN(rawData, note), true, null, false);
-                    
                     if (!planRes || !planRes.categoryNames) throw new Error("분석 플랜 생성 실패");
-
                     const detailPromises = planRes.categoryNames.map(async (catName) => {
                         const detailRes = await callGemini(PROMPTS.STEP2_DETAIL(rawData, catName), true, null, false);
                         const opinionString = (detailRes.opinions || "").toString();
                         const opinionArray = opinionString.split(',').map(id => lines[parseInt(id.trim(), 10)]).filter(Boolean);
-                        return {
-                            name: catName,
-                            summary: detailRes.summary,
-                            count: detailRes.count,
-                            opinions: opinionArray
-                        };
+                        return { name: catName, summary: detailRes.summary, count: detailRes.count, opinions: opinionArray };
                     });
-
                     const uxCategories = await Promise.all(detailPromises);
                     setStep2Result({ summary: planRes.summary, uxCategories }); 
                     setStep(3);
-                } catch { 
-                    setError("분석 실패. 데이터 형식을 확인해 주세요."); 
-                } finally {
-                    setIsAnalyzing(false);
-                }
+                } catch { setError("분석 실패. 데이터 형식을 확인해 주세요."); }
+                finally { setIsAnalyzing(false); }
             };
 
             const start5WhysAnalysis = async (note = null) => {
@@ -486,7 +464,6 @@
                 if (step === 7 && finalBrief) {
                     text += `--- 최종 통합 리포트 ---\n[${finalBrief.step1.title}]\n${finalBrief.step1.content}\n\n[${finalBrief.step2.title}]\n${finalBrief.step2.content}\n\n[${finalBrief.step3.title}]\n${finalBrief.step3.content}\n\n[전략적 해결 방향]\n${finalBrief.step4.content?.replace(/^["']|["']$/g, '')}\n\n`;
                 }
-
                 if (navigator.clipboard && window.isSecureContext) {
                     navigator.clipboard.writeText(text).then(() => alert("전체 누적 리포트가 복사되었습니다.")).catch(() => fallbackCopyTextToClipboard(text, "전체 누적 리포트가 복사되었습니다."));
                 } else { fallbackCopyTextToClipboard(text, "전체 누적 리포트가 복사되었습니다."); }
@@ -512,7 +489,6 @@
                             <h3 className="text-[20px] font-black text-[#0f172a] tracking-tight">AI 분석 중</h3>
                         </div>
                     )}
-
                     {error && (
                         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/40 p-6 backdrop-blur-sm">
                             <div className="bg-white p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl border border-slate-100">
@@ -522,11 +498,9 @@
                             </div>
                         </div>
                     )}
-
                     {step > 0 && (
                         <Header step={step} setStep={setStep} copyAccumulatedContent={copyAccumulatedContent} resetAll={resetAll} apiKey={apiKey} step1Result={step1Result} step2Result={step2Result} selectedCategory={selectedCategory} rootCauses={rootCauses} deepHypotheses={deepHypotheses} finalBrief={finalBrief} exportProject={exportProject} />
                     )}
-
                     <main id="main-content" className={step === 0 ? "" : "pt-16"}>
                         {step === 0 && (
                             <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-gradient-to-b from-[#e0f2fe] via-white to-[#e0f2fe] text-center animate-fade-in">
@@ -543,7 +517,6 @@
                                 </div>
                             </div>
                         )}
-
                         {step === 1 && (
                             <div className="flex flex-col min-h-screen bg-slate-900 text-white p-8 pt-10 justify-center relative overflow-hidden animate-fade-in">
                                 {step1Result && (
@@ -574,7 +547,6 @@
                                             <label htmlFor="file-up" className="flex-1 bg-white/10 hover:bg-white/15 py-4 rounded-[1.2rem] text-center font-bold cursor-pointer transition-colors flex items-center justify-center">파일 업로드</label>
                                             <button onClick={() => handleStep1Analysis()} disabled={!rawData.trim()} className="flex-1 bg-blue-600 disabled:bg-slate-700 text-white rounded-[1.2rem] font-black py-4">분석 시작</button>
                                         </div>
-                                        {/* [추가된 기능] 기존 프로젝트 열기 버튼 */}
                                         <div className="mt-3">
                                             <input type="file" id="import-project" accept=".json" className="hidden" onChange={importProject} />
                                             <label htmlFor="import-project" className="w-full bg-transparent border border-white/20 hover:bg-white/10 py-4 rounded-[1.2rem] text-center font-bold cursor-pointer transition-colors flex items-center justify-center text-white/80">기존 프로젝트 열기 (.json)</label>
@@ -583,7 +555,6 @@
                                 </div>
                             </div>
                         )}
-
                         {step === 2 && step1Result && (
                             <div className="pt-8 px-5 pb-32 animate-fade-in">
                                 <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white mb-8 shadow-2xl relative overflow-hidden">
@@ -606,11 +577,10 @@
                                 <div className="fixed bottom-0 left-0 right-0 p-5 glass-panel border-t max-w-[430px] mx-auto z-[60]"><button onClick={() => handleStep2Analysis()} className="w-full py-5 bg-slate-900 text-white rounded-[1.2rem] font-black text-lg active:scale-95 transition-all">UX/디자인 심화 분석 이동</button></div>
                             </div>
                         )}
-
                         {step === 3 && step2Result && (
                             <div className="pt-8 px-5 pb-48 animate-fade-in">
                                 <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white mb-8 shadow-2xl text-justify relative overflow-hidden">
-                                    <div className="absolute top-0 left-0 w-32 h-32 bg-indigo-500/20 rounded-full blur-3xl"></div>
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/20 rounded-full blur-3xl"></div>
                                     <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-4 py-1.5 rounded-full font-black uppercase mb-5 inline-block text-[13px]">UX/DESIGN SUMMARY</span>
                                     <p className="text-[17px] font-light leading-[1.8] text-slate-200 relative z-10">"{step2Result.summary}"</p>
                                 </div>
@@ -635,15 +605,13 @@
                                 </div>
                             </div>
                         )}
-
                         {step === 4 && (
                             <div className="pt-8 px-6 pb-48 animate-fade-in">
-                                <h2 className="text-28px font-black text-slate-800 leading-tight mb-8">분석할 <span className="gradient-text text-28px">대상 가설</span></h2>
-                                <div className="bg-white p-6 rounded-[2rem] card-shadow border border-orange-100 mb-8"><textarea value={deepDiveInput} onChange={(e) => setDeepDiveInput(e.target.value)} className="w-full h-64 outline-none text-[17px] text-slate-700 font-light resize-none leading-relaxed" /></div>
+                                <h2 className="text-28px font-black text-slate-800 leading-tight mb-8">원인 분석 <span className="gradient-text text-28px">대상 설정</span></h2>
+                                <div className="bg-white p-6 rounded-[2rem] card-shadow border border-orange-100 mb-8"><textarea value={deepDiveInput} onChange={(e) => setDeepDiveInput(e.target.value)} className="w-full h-64 outline-none text-[17px] text-slate-700 font-light resize-none leading-relaxed"></textarea></div>
                                 <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel border-t max-w-[430px] mx-auto z-40"><button onClick={() => start5WhysAnalysis()} className="w-full py-5 bg-slate-900 text-white rounded-[1.2rem] font-black shadow-xl active:scale-95 transition-all">5Whys 원인 분석 실행</button></div>
                             </div>
                         )}
-
                         {step === 5 && rootCauses.length > 0 && (
                             <div className="pt-8 px-5 pb-64 animate-fade-in">
                                 <div className="space-y-6">
@@ -668,28 +636,27 @@
                                     ))}
                                 </div>
                                 <div className="mt-8"><AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} /></div>
-                                <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel max-w-[430px] mx-auto z-40 border-t shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
+                                <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel max-w-[430px] mx-auto z-40 border-t border-slate-200/50 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
                                     <div className="grid grid-cols-2 gap-2 mb-5">
                                         {['사용 불편 관점', '기술 진화 관점', '심미적 관점', '비지니스 관점'].map(p => (
                                             <button key={p} onClick={() => changePerspective(p)} className={`py-3 rounded-xl text-[14px] font-bold border transition-all active:scale-95 ${perspective === p ? 'bg-orange-50 border-orange-400 text-orange-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>{p}</button>
                                         ))}
                                     </div>
-                                    <button onClick={() => exploreDeepHypotheses(selectedCauseId)} disabled={selectedCauseId === null} className="w-full py-5 rounded-[1.2rem] font-black bg-slate-900 text-white shadow-xl active:scale-95 transition-all disabled:bg-slate-200 disabled:shadow-none">디자인 인사이트 도출</button>
+                                    <button onClick={() => exploreDeepHypotheses(selectedCauseId)} disabled={selectedCauseId === null} className="w-full py-5 rounded-[1.2rem] font-black bg-slate-900 text-white disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none shadow-xl shadow-slate-900/20 active:scale-95 transition-all">디자인 인사이트 도출</button>
                                 </div>
                             </div>
                         )}
-
                         {step === 6 && deepHypotheses.length > 0 && (
                             <div className="pt-8 px-5 pb-80 animate-fade-in">
                                 <div className="grid gap-6">
                                     {deepHypotheses.map(h => (
                                         <div key={h.id} className={`p-8 rounded-[2.5rem] transition-all duration-300 card-shadow bg-white ${selectedDeepHypoId === h.id ? 'border-[3px] border-indigo-500 ring-4 ring-indigo-500/10' : 'border border-slate-100/60 hover:border-slate-300'}`}>
                                             <div className="flex flex-col mb-6 border-b border-slate-100 pb-5">
-                                                <div className="flex justify-end mb-4"><button onClick={() => setSelectedDeepHypoId(h.id)} className={`px-7 py-2.5 rounded-xl font-black shadow-md active:scale-95 text-[15px] ${selectedDeepHypoId === h.id ? 'bg-slate-900 text-white shadow-slate-900/30 ring-2 ring-offset-2 ring-slate-900' : 'bg-slate-800 text-white hover:bg-slate-700'}`}>가설 선택</button></div>
+                                                <div className="flex justify-end mb-4"><button onClick={() => setSelectedDeepHypoId(h.id)} className={`px-7 py-2.5 rounded-xl font-black shadow-md shrink-0 text-[15px] ${selectedDeepHypoId === h.id ? 'bg-slate-900 text-white shadow-slate-900/30 ring-2 ring-offset-2 ring-slate-900' : 'bg-slate-800 text-white hover:bg-slate-700'}`}>가설 선택</button></div>
                                                 <h3 className="text-[22px] font-black text-slate-900 leading-snug">{h.title}</h3>
                                             </div>
                                             <div className="space-y-8">
-                                                {[{t:'Step 1. 표면적 원인 대처', c:h.step1}, {t:'Step 2. 맥락적 원인 재해석', c:h.step2}, {t:'Step 3. 맥락적 인사이트 제안', c:h.step3}].map((item, idx) => (
+                                                {[{t:'Step 1. VOC 기반 이슈', c:h.step1}, {t:'Step 2. 디자인 솔루션 제안', c:h.step2}, {t:'Step 3. 사용자 가치 및 기대 효과', c:h.step3}].map((item, idx) => (
                                                     <div key={idx} className="relative">
                                                         <div className="absolute left-0 top-2 w-1.5 h-1.5 rounded-full bg-orange-400"></div>
                                                         <p className="text-[17px] font-bold text-slate-800 mb-2 pl-4 tracking-wide">{item.t}</p>
@@ -704,14 +671,13 @@
                                 <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel border-t border-slate-200/50 max-w-[430px] mx-auto z-40 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
                                     <div className="grid grid-cols-2 gap-2 mb-5">
                                         {['사용 불편 관점', '기술 진화 관점', '심미적 관점', '비지니스 관점'].map(p => (
-                                            <button key={p} onClick={() => changePerspectiveInStep6(p)} className={`py-3 rounded-xl font-bold border transition-all active:scale-95 ${perspective === p ? 'bg-indigo-50 border-indigo-400 text-indigo-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>{p}</button>
+                                            <button key={p} onClick={() => changePerspectiveInStep6(p)} className={`py-3 rounded-xl font-bold border transition-all text-[14px] active:scale-95 ${perspective === p ? 'bg-indigo-50 border-indigo-400 text-indigo-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>{p}</button>
                                         ))}
                                     </div>
-                                    <button onClick={() => generateFinalReport(selectedDeepHypoId)} disabled={selectedDeepHypoId === null} className="w-full py-5 bg-slate-900 text-white rounded-[1.2rem] font-black shadow-xl active:scale-95 transition-all disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none">최종 통합 리포트 생성</button>
+                                    <button onClick={() => generateFinalReport(selectedDeepHypoId)} disabled={selectedDeepHypoId === null} className="w-full py-5 bg-slate-900 text-white rounded-[1.2rem] font-black text-[17px] shadow-xl shadow-slate-900/20 active:scale-95 transition-all disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none">최종 통합 리포트 생성</button>
                                 </div>
                             </div>
                         )}
-
                         {step === 7 && finalBrief && (
                             <div className="pt-8 px-5 pb-48 animate-fade-in">
                                 <div className="space-y-6">
@@ -734,7 +700,6 @@
                             </div>
                         )}
                     </main>
-
                     {opinionModal.visible && (
                         <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-slate-900/60 p-5 backdrop-blur-sm animate-fade-in">
                             <div className="bg-white text-slate-800 p-8 rounded-[2.5rem] w-full max-w-[390px] shadow-2xl relative border border-slate-100 overflow-hidden flex flex-col max-h-[85vh]">
