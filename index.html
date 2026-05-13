@@ -40,7 +40,6 @@
         const MODEL_NAME = "gemini-flash-latest"; 
         const SESSION_KEY = "gemini_api_key_ux_hub_integrated";
 
-        // 분석 산출물의 이해도를 대학생 수준으로 변경하도록 프롬프트 지시문 업데이트 (구조와 양은 동일하게 유지)
         const PROMPTS = {
             STEP1_PLAN: (data, note) => {
                 const numberedData = data.split('\n').map((line, i) => `[ID:${i}] ${line}`).join('\n');
@@ -81,7 +80,7 @@
             </div>
         );
 
-        const Header = ({ step, setStep, copyAccumulatedContent, resetAll, apiKey, step1Result, step2Result, selectedCategory, rootCauses, deepHypotheses, finalBrief }) => {
+        const Header = ({ step, setStep, copyAccumulatedContent, resetAll, apiKey, step1Result, step2Result, selectedCategory, rootCauses, deepHypotheses, finalBrief, exportProject }) => {
             const canGoForward = 
                 (step === 0 && apiKey) ||
                 (step === 1 && step1Result) || 
@@ -114,6 +113,10 @@
                         <h1 className="font-bold text-[18px] text-slate-800 truncate">{getDynamicTitle()}</h1>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
+                        {/* 프로젝트 저장 (다운로드 아이콘) */}
+                        <button onClick={exportProject} className="p-2 rounded-full hover:bg-slate-100/80 shrink-0" title="프로젝트 PC에 저장">
+                            <Icon name="Download" size={20} className="text-blue-500" />
+                        </button>
                         {canGoForward && (
                             <button onClick={() => setStep(s => s + 1)} className="p-2 rounded-full hover:bg-slate-100/80 shrink-0"><Icon name="ChevronRight" size={24} className="text-slate-800" /></button>
                         )}
@@ -146,6 +149,99 @@
 
             const [qaInput, setQaInput] = useState("");
             const [opinionModal, setOpinionModal] = useState({ visible: false, title: "", opinions: [] });
+
+            // [기능 추가] 현재 상태를 JSON 파일로 다운로드
+            const exportProject = () => {
+                const projectData = {
+                    version: "1.0",
+                    date: new Date().toISOString(),
+                    state: {
+                        step, rawData, itemCount, perspective, deepDiveInput,
+                        step1Result, step2Result, selectedCategory, rootCauses,
+                        selectedCauseId, deepHypotheses, selectedDeepHypoId, finalBrief
+                    }
+                };
+                const blob = new Blob([JSON.stringify(projectData, null, 2)], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `UX_Insight_Project_${new Date().toISOString().split('T')[0]}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                alert("프로젝트가 성공적으로 PC에 저장되었습니다.");
+            };
+
+            // [기능 추가] JSON 파일을 읽어와 상태 복원
+            const importProject = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    try {
+                        const data = JSON.parse(ev.target.result);
+                        if (data && data.state) {
+                            const s = data.state;
+                            setRawData(s.rawData || "");
+                            setItemCount(s.itemCount || 0);
+                            setStep1Result(s.step1Result || null);
+                            setStep2Result(s.step2Result || null);
+                            setSelectedCategory(s.selectedCategory || null);
+                            setPerspective(s.perspective || "사용 불편 관점");
+                            setDeepDiveInput(s.deepDiveInput || "");
+                            setRootCauses(s.rootCauses || []);
+                            setSelectedCauseId(s.selectedCauseId || null);
+                            setDeepHypotheses(s.deepHypotheses || []);
+                            setSelectedDeepHypoId(s.selectedDeepHypoId || null);
+                            setFinalBrief(s.finalBrief || null);
+                            setStep(s.step > 0 ? s.step : 1);
+                            alert("기존 프로젝트를 성공적으로 불러왔습니다.");
+                        }
+                    } catch (err) {
+                        alert("잘못되거나 손상된 프로젝트 파일입니다.");
+                    }
+                };
+                reader.readAsText(file);
+                e.target.value = null; 
+            };
+
+            // [기능 추가] 상태 변경 시 자동 임시 저장
+            useEffect(() => {
+                if (step > 0) {
+                    const stateToSave = {
+                        step, rawData, itemCount, perspective, deepDiveInput,
+                        step1Result, step2Result, selectedCategory, rootCauses,
+                        selectedCauseId, deepHypotheses, selectedDeepHypoId, finalBrief
+                    };
+                    safeSetItem("ux_insight_autosave", JSON.stringify(stateToSave));
+                }
+            }, [step, rawData, itemCount, perspective, deepDiveInput, step1Result, step2Result, selectedCategory, rootCauses, selectedCauseId, deepHypotheses, selectedDeepHypoId, finalBrief]);
+
+            // [기능 추가] 초기 접속 시 임시 저장 내역 불러오기
+            useEffect(() => {
+                const saved = safeGetItem("ux_insight_autosave");
+                if (saved && step === 0 && apiKey) { 
+                    if (window.confirm("이전에 작업 중이던 임시 저장 데이터가 있습니다. 이어서 진행하시겠습니까?\n(취소 시 새로 시작합니다)")) {
+                        const s = JSON.parse(saved);
+                        setRawData(s.rawData || "");
+                        setItemCount(s.itemCount || 0);
+                        setStep1Result(s.step1Result || null);
+                        setStep2Result(s.step2Result || null);
+                        setSelectedCategory(s.selectedCategory || null);
+                        setPerspective(s.perspective || "사용 불편 관점");
+                        setDeepDiveInput(s.deepDiveInput || "");
+                        setRootCauses(s.rootCauses || []);
+                        setSelectedCauseId(s.selectedCauseId || null);
+                        setDeepHypotheses(s.deepHypotheses || []);
+                        setSelectedDeepHypoId(s.selectedDeepHypoId || null);
+                        setFinalBrief(s.finalBrief || null);
+                        setStep(s.step || 1);
+                    } else {
+                        safeSetItem("ux_insight_autosave", ""); 
+                    }
+                }
+            }, [step, apiKey]);
 
             useEffect(() => { setTimeout(() => window.scrollTo(0,0), 50); }, [step]);
 
@@ -428,7 +524,7 @@
                     )}
 
                     {step > 0 && (
-                        <Header step={step} setStep={setStep} copyAccumulatedContent={copyAccumulatedContent} resetAll={resetAll} apiKey={apiKey} step1Result={step1Result} step2Result={step2Result} selectedCategory={selectedCategory} rootCauses={rootCauses} deepHypotheses={deepHypotheses} finalBrief={finalBrief} />
+                        <Header step={step} setStep={setStep} copyAccumulatedContent={copyAccumulatedContent} resetAll={resetAll} apiKey={apiKey} step1Result={step1Result} step2Result={step2Result} selectedCategory={selectedCategory} rootCauses={rootCauses} deepHypotheses={deepHypotheses} finalBrief={finalBrief} exportProject={exportProject} />
                     )}
 
                     <main id="main-content" className={step === 0 ? "" : "pt-16"}>
@@ -477,6 +573,11 @@
                                             <input type="file" id="file-up" className="hidden" onChange={handleFileUpload} />
                                             <label htmlFor="file-up" className="flex-1 bg-white/10 hover:bg-white/15 py-4 rounded-[1.2rem] text-center font-bold cursor-pointer transition-colors flex items-center justify-center">파일 업로드</label>
                                             <button onClick={() => handleStep1Analysis()} disabled={!rawData.trim()} className="flex-1 bg-blue-600 disabled:bg-slate-700 text-white rounded-[1.2rem] font-black py-4">분석 시작</button>
+                                        </div>
+                                        {/* [추가된 기능] 기존 프로젝트 열기 버튼 */}
+                                        <div className="mt-3">
+                                            <input type="file" id="import-project" accept=".json" className="hidden" onChange={importProject} />
+                                            <label htmlFor="import-project" className="w-full bg-transparent border border-white/20 hover:bg-white/10 py-4 rounded-[1.2rem] text-center font-bold cursor-pointer transition-colors flex items-center justify-center text-white/80">기존 프로젝트 열기 (.json)</label>
                                         </div>
                                     </div>
                                 </div>
