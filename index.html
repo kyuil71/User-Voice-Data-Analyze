@@ -4,17 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>User Voice Analysis & Design Insight</title>
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- React, ReactDOM, Babel -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- XLSX Library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <!-- 외부 스타일시트 연결 -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body class="bg-[#F8FAFC]">
@@ -23,11 +18,52 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        const safeGetItem = (key) => {
-            try { return localStorage.getItem(key); } catch (e) { return null; }
+        // [신규] Safari 포함 모든 브라우저 자동 저장을 위한 IndexedDB 헬퍼 함수
+        const initDB = () => {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open("UXInsightDB", 1);
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => resolve(request.result);
+                request.onupgradeneeded = (e) => {
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains("projects")) {
+                        db.createObjectStore("projects");
+                    }
+                };
+            });
         };
-        const safeSetItem = (key, value) => {
-            try { localStorage.setItem(key, value); } catch (e) { console.warn("Storage restricted"); }
+
+        const saveToDB = async (key, data) => {
+            try {
+                const db = await initDB();
+                const tx = db.transaction("projects", "readwrite");
+                tx.objectStore("projects").put(data, key);
+            } catch (e) {
+                console.error("DB Save Error:", e);
+            }
+        };
+
+        const loadFromDB = async (key) => {
+            try {
+                const db = await initDB();
+                const tx = db.transaction("projects", "readonly");
+                const request = tx.objectStore("projects").get(key);
+                return new Promise((resolve) => {
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => resolve(null);
+                });
+            } catch (e) {
+                console.error("DB Load Error:", e);
+                return null;
+            }
+        };
+
+        const clearDB = async (key) => {
+            try {
+                const db = await initDB();
+                const tx = db.transaction("projects", "readwrite");
+                tx.objectStore("projects").delete(key);
+            } catch (e) {}
         };
 
         const Icon = ({ name, size = 24, className = "" }) => {
@@ -43,7 +79,6 @@
         };
 
         const MODEL_NAME = "gemini-flash-latest"; 
-        const SESSION_KEY = "gemini_api_key_ux_hub_integrated";
 
         const PROMPTS = {
             STEP1_PLAN: (data, note) => {
@@ -85,9 +120,8 @@
             </div>
         );
 
-        const Header = ({ step, setStep, copyAccumulatedContent, resetAll, apiKey, step1Result, step2Result, selectedCategory, rootCauses, deepHypotheses, finalBrief, exportProject }) => {
+        const Header = ({ step, setStep, copyAccumulatedContent, resetAll, step1Result, step2Result, selectedCategory, rootCauses, deepHypotheses, finalBrief, exportProject }) => {
             const canGoForward = 
-                (step === 0 && apiKey) ||
                 (step === 1 && step1Result) || 
                 (step === 2 && step2Result) || 
                 (step === 3 && selectedCategory) || 
@@ -95,10 +129,9 @@
                 (step === 5 && deepHypotheses?.length > 0) ||
                 (step === 6 && finalBrief);
 
-            const canGoBack = step > 0;
+            const canGoBack = step > 1;
             
             const getDynamicTitle = () => {
-                if (step === 0) return "";
                 if (step === 1) return "사용자 데이터 입력";
                 if (step === 2) return "전체 Affinity 분석";
                 if (step === 3) return "UX/Design Affinity 분석";
@@ -118,7 +151,7 @@
                         <h1 className="font-bold text-[18px] text-slate-800 truncate">{getDynamicTitle()}</h1>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
-                        <button onClick={exportProject} className="p-2 rounded-full hover:bg-slate-100/80 shrink-0" title="프로젝트 PC에 저장">
+                        <button onClick={exportProject} className="p-2 rounded-full hover:bg-slate-100/80 shrink-0" title="프로젝트 수동 다운로드">
                             <Icon name="Download" size={20} className="text-blue-500" />
                         </button>
                         {canGoForward && (
@@ -153,16 +186,62 @@
 
             const [qaInput, setQaInput] = useState("");
             const [opinionModal, setOpinionModal] = useState({ visible: false, title: "", opinions: [] });
+            
+            const stateRef = useRef();
+
+            // 백그라운드 자동 저장을 위한 참조 최신화
+            useEffect(() => {
+                stateRef.current = { step, rawData, itemCount, perspective, deepDiveInput, step1Result, step2Result, selectedCategory, rootCauses, selectedCauseId, deepHypotheses, selectedDeepHypoId, finalBrief };
+            });
+
+            // 초기 로딩 시 IndexedDB에 남은 데이터 확인
+            useEffect(() => {
+                const checkSavedData = async () => {
+                    const savedData = await loadFromDB("autosave_project");
+                    if (savedData && savedData.state && step === 0 && apiKey) {
+                        if (window.confirm("이전에 작업 중이던 임시 저장 데이터가 있습니다. 이어서 진행하시겠습니까?\n(취소 시 기존 데이터는 삭제되고 새로 시작합니다)")) {
+                            const s = savedData.state;
+                            setRawData(s.rawData || "");
+                            setItemCount(s.itemCount || 0);
+                            setStep1Result(s.step1Result || null);
+                            setStep2Result(s.step2Result || null);
+                            setSelectedCategory(s.selectedCategory || null);
+                            setPerspective(s.perspective || "사용 불편 관점");
+                            setDeepDiveInput(s.deepDiveInput || "");
+                            setRootCauses(s.rootCauses || []);
+                            setSelectedCauseId(s.selectedCauseId || null);
+                            setDeepHypotheses(s.deepHypotheses || []);
+                            setSelectedDeepHypoId(s.selectedDeepHypoId || null);
+                            setFinalBrief(s.finalBrief || null);
+                            setStep(s.step > 0 ? s.step : 1);
+                        } else {
+                            await clearDB("autosave_project");
+                        }
+                    }
+                };
+                checkSavedData();
+            }, [step, apiKey]);
+
+            // 분석 1단계부터 무조건 5초 간격으로 백그라운드 자동 저장 실행
+            useEffect(() => {
+                if (step > 0) {
+                    const intervalId = setInterval(async () => {
+                        const projectData = {
+                            version: "1.0",
+                            date: new Date().toISOString(),
+                            state: stateRef.current
+                        };
+                        await saveToDB("autosave_project", projectData);
+                    }, 5000);
+                    return () => clearInterval(intervalId);
+                }
+            }, [step]);
 
             const exportProject = () => {
                 const projectData = {
                     version: "1.0",
                     date: new Date().toISOString(),
-                    state: {
-                        step, rawData, itemCount, perspective, deepDiveInput,
-                        step1Result, step2Result, selectedCategory, rootCauses,
-                        selectedCauseId, deepHypotheses, selectedDeepHypoId, finalBrief
-                    }
+                    state: stateRef.current
                 };
                 const blob = new Blob([JSON.stringify(projectData, null, 2)], { type: "application/json" });
                 const url = URL.createObjectURL(blob);
@@ -173,14 +252,14 @@
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
-                alert("프로젝트가 성공적으로 PC에 저장되었습니다.");
+                alert("프로젝트 데이터가 수동으로 PC/폰에 다운로드 되었습니다.");
             };
 
             const importProject = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
                 const reader = new FileReader();
-                reader.onload = (ev) => {
+                reader.onload = async (ev) => {
                     try {
                         const data = JSON.parse(ev.target.result);
                         if (data && data.state) {
@@ -198,7 +277,7 @@
                             setSelectedDeepHypoId(s.selectedDeepHypoId || null);
                             setFinalBrief(s.finalBrief || null);
                             setStep(s.step > 0 ? s.step : 1);
-                            alert("기존 프로젝트를 성공적으로 불러왔습니다.");
+                            alert("기존 프로젝트를 성공적으로 불러왔습니다. 이제 5초 간격으로 브라우저에 자동 임시 저장됩니다.");
                         }
                     } catch (err) {
                         alert("잘못되거나 손상된 프로젝트 파일입니다.");
@@ -207,41 +286,6 @@
                 reader.readAsText(file);
                 e.target.value = null; 
             };
-
-            useEffect(() => {
-                const saved = safeGetItem("ux_insight_autosave");
-                if (saved && step === 0 && apiKey) { 
-                    if (window.confirm("이전에 작업 중이던 임시 저장 데이터가 있습니다. 이어서 진행하시겠습니까?\n(취소 시 새로 시작합니다)")) {
-                        const s = JSON.parse(saved);
-                        setRawData(s.rawData || "");
-                        setItemCount(s.itemCount || 0);
-                        setStep1Result(s.step1Result || null);
-                        setStep2Result(s.step2Result || null);
-                        setSelectedCategory(s.selectedCategory || null);
-                        setPerspective(s.perspective || "사용 불편 관점");
-                        setDeepDiveInput(s.deepDiveInput || "");
-                        setRootCauses(s.rootCauses || []);
-                        setSelectedCauseId(s.selectedCauseId || null);
-                        setDeepHypotheses(s.deepHypotheses || []);
-                        setSelectedDeepHypoId(s.selectedDeepHypoId || null);
-                        setFinalBrief(s.finalBrief || null);
-                        setStep(s.step || 1);
-                    } else {
-                        safeSetItem("ux_insight_autosave", ""); 
-                    }
-                }
-            }, [step, apiKey]);
-
-            useEffect(() => {
-                if (step > 0) {
-                    const stateToSave = {
-                        step, rawData, itemCount, perspective, deepDiveInput,
-                        step1Result, step2Result, selectedCategory, rootCauses,
-                        selectedCauseId, deepHypotheses, selectedDeepHypoId, finalBrief
-                    };
-                    safeSetItem("ux_insight_autosave", JSON.stringify(stateToSave));
-                }
-            }, [step, rawData, itemCount, perspective, deepDiveInput, step1Result, step2Result, selectedCategory, rootCauses, selectedCauseId, deepHypotheses, selectedDeepHypoId, finalBrief]);
 
             useEffect(() => { setTimeout(() => window.scrollTo(0,0), 50); }, [step]);
 
@@ -464,6 +508,7 @@
                 if (step === 7 && finalBrief) {
                     text += `--- 최종 통합 리포트 ---\n[${finalBrief.step1.title}]\n${finalBrief.step1.content}\n\n[${finalBrief.step2.title}]\n${finalBrief.step2.content}\n\n[${finalBrief.step3.title}]\n${finalBrief.step3.content}\n\n[전략적 해결 방향]\n${finalBrief.step4.content?.replace(/^["']|["']$/g, '')}\n\n`;
                 }
+
                 if (navigator.clipboard && window.isSecureContext) {
                     navigator.clipboard.writeText(text).then(() => alert("전체 누적 리포트가 복사되었습니다.")).catch(() => fallbackCopyTextToClipboard(text, "전체 누적 리포트가 복사되었습니다."));
                 } else { fallbackCopyTextToClipboard(text, "전체 누적 리포트가 복사되었습니다."); }
@@ -475,10 +520,11 @@
                 } else { fallbackCopyTextToClipboard(text, "원문 데이터 복사됨"); }
             };
 
-            const resetAll = () => { 
-                setStep(1); setStep1Result(null); setStep2Result(null); setSelectedCategory(null); 
+            const resetAll = async () => { 
+                setStep(0); setApiKey(""); setStep1Result(null); setStep2Result(null); setSelectedCategory(null); 
                 setRawData(""); setItemCount(0); setPerspective("사용 불편 관점"); 
                 setRootCauses([]); setDeepHypotheses([]); setFinalBrief(null);
+                await clearDB("autosave_project"); // 초기화 시 임시저장 데이터 완전 삭제
             };
 
             return (
@@ -489,6 +535,7 @@
                             <h3 className="text-[20px] font-black text-[#0f172a] tracking-tight">AI 분석 중</h3>
                         </div>
                     )}
+
                     {error && (
                         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/40 p-6 backdrop-blur-sm">
                             <div className="bg-white p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl border border-slate-100">
@@ -498,9 +545,11 @@
                             </div>
                         </div>
                     )}
+
                     {step > 0 && (
                         <Header step={step} setStep={setStep} copyAccumulatedContent={copyAccumulatedContent} resetAll={resetAll} apiKey={apiKey} step1Result={step1Result} step2Result={step2Result} selectedCategory={selectedCategory} rootCauses={rootCauses} deepHypotheses={deepHypotheses} finalBrief={finalBrief} exportProject={exportProject} />
                     )}
+
                     <main id="main-content" className={step === 0 ? "" : "pt-16"}>
                         {step === 0 && (
                             <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-gradient-to-b from-[#e0f2fe] via-white to-[#e0f2fe] text-center animate-fade-in">
@@ -517,15 +566,9 @@
                                 </div>
                             </div>
                         )}
+
                         {step === 1 && (
                             <div className="flex flex-col min-h-screen bg-slate-900 text-white p-8 pt-10 justify-center relative overflow-hidden animate-fade-in">
-                                {step1Result && (
-                                    <div className="absolute top-24 right-6 z-20 animate-fade-in">
-                                        <button onClick={() => setStep(2)} className="flex items-center gap-1.5 bg-blue-600/80 hover:bg-blue-500 backdrop-blur-md text-white px-4 py-2 rounded-full font-bold text-[14px] shadow-lg border border-white/20 transition-all active:scale-95">
-                                            기존 분석 보기 <Icon name="ChevronRight" size={18} />
-                                        </button>
-                                    </div>
-                                )}
                                 <div className="absolute top-[-10%] left-[-20%] w-[140%] h-[70%] bg-gradient-to-br from-indigo-600/30 to-blue-500/20 rounded-full blur-[100px] pointer-events-none"></div>
                                 <div className="relative z-10 space-y-12">
                                     <div className="space-y-6">
@@ -555,6 +598,7 @@
                                 </div>
                             </div>
                         )}
+
                         {step === 2 && step1Result && (
                             <div className="pt-8 px-5 pb-32 animate-fade-in">
                                 <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white mb-8 shadow-2xl relative overflow-hidden">
@@ -577,10 +621,11 @@
                                 <div className="fixed bottom-0 left-0 right-0 p-5 glass-panel border-t max-w-[430px] mx-auto z-[60]"><button onClick={() => handleStep2Analysis()} className="w-full py-5 bg-slate-900 text-white rounded-[1.2rem] font-black text-lg active:scale-95 transition-all">UX/디자인 심화 분석 이동</button></div>
                             </div>
                         )}
+
                         {step === 3 && step2Result && (
                             <div className="pt-8 px-5 pb-48 animate-fade-in">
                                 <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white mb-8 shadow-2xl text-justify relative overflow-hidden">
-                                    <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/20 rounded-full blur-3xl"></div>
+                                    <div className="absolute top-0 left-0 w-32 h-32 bg-indigo-500/20 rounded-full blur-3xl"></div>
                                     <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-4 py-1.5 rounded-full font-black uppercase mb-5 inline-block text-[13px]">UX/DESIGN SUMMARY</span>
                                     <p className="text-[17px] font-light leading-[1.8] text-slate-200 relative z-10">"{step2Result.summary}"</p>
                                 </div>
@@ -605,6 +650,7 @@
                                 </div>
                             </div>
                         )}
+
                         {step === 4 && (
                             <div className="pt-8 px-6 pb-48 animate-fade-in">
                                 <h2 className="text-28px font-black text-slate-800 leading-tight mb-8">원인 분석 <span className="gradient-text text-28px">대상 설정</span></h2>
@@ -612,6 +658,7 @@
                                 <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel border-t max-w-[430px] mx-auto z-40"><button onClick={() => start5WhysAnalysis()} className="w-full py-5 bg-slate-900 text-white rounded-[1.2rem] font-black shadow-xl active:scale-95 transition-all">5Whys 원인 분석 실행</button></div>
                             </div>
                         )}
+
                         {step === 5 && rootCauses.length > 0 && (
                             <div className="pt-8 px-5 pb-64 animate-fade-in">
                                 <div className="space-y-6">
@@ -636,23 +683,24 @@
                                     ))}
                                 </div>
                                 <div className="mt-8"><AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} /></div>
-                                <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel max-w-[430px] mx-auto z-40 border-t border-slate-200/50 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
+                                <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel max-w-[430px] mx-auto z-40 border-t shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
                                     <div className="grid grid-cols-2 gap-2 mb-5">
                                         {['사용 불편 관점', '기술 진화 관점', '심미적 관점', '비지니스 관점'].map(p => (
                                             <button key={p} onClick={() => changePerspective(p)} className={`py-3 rounded-xl text-[14px] font-bold border transition-all active:scale-95 ${perspective === p ? 'bg-orange-50 border-orange-400 text-orange-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>{p}</button>
                                         ))}
                                     </div>
-                                    <button onClick={() => exploreDeepHypotheses(selectedCauseId)} disabled={selectedCauseId === null} className="w-full py-5 rounded-[1.2rem] font-black bg-slate-900 text-white disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none shadow-xl shadow-slate-900/20 active:scale-95 transition-all">디자인 인사이트 도출</button>
+                                    <button onClick={() => exploreDeepHypotheses(selectedCauseId)} disabled={selectedCauseId === null} className="w-full py-5 rounded-[1.2rem] font-black bg-slate-900 text-white shadow-xl active:scale-95 transition-all disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none">디자인 인사이트 도출</button>
                                 </div>
                             </div>
                         )}
+
                         {step === 6 && deepHypotheses.length > 0 && (
                             <div className="pt-8 px-5 pb-80 animate-fade-in">
                                 <div className="grid gap-6">
                                     {deepHypotheses.map(h => (
                                         <div key={h.id} className={`p-8 rounded-[2.5rem] transition-all duration-300 card-shadow bg-white ${selectedDeepHypoId === h.id ? 'border-[3px] border-indigo-500 ring-4 ring-indigo-500/10' : 'border border-slate-100/60 hover:border-slate-300'}`}>
                                             <div className="flex flex-col mb-6 border-b border-slate-100 pb-5">
-                                                <div className="flex justify-end mb-4"><button onClick={() => setSelectedDeepHypoId(h.id)} className={`px-7 py-2.5 rounded-xl font-black shadow-md shrink-0 text-[15px] ${selectedDeepHypoId === h.id ? 'bg-slate-900 text-white shadow-slate-900/30 ring-2 ring-offset-2 ring-slate-900' : 'bg-slate-800 text-white hover:bg-slate-700'}`}>가설 선택</button></div>
+                                                <div className="flex justify-end mb-4"><button onClick={() => setSelectedDeepHypoId(h.id)} className={`px-7 py-2.5 rounded-xl font-black shadow-md active:scale-95 text-[15px] ${selectedDeepHypoId === h.id ? 'bg-slate-900 text-white shadow-slate-900/30 ring-2 ring-offset-2 ring-slate-900' : 'bg-slate-800 text-white hover:bg-slate-700'}`}>가설 선택</button></div>
                                                 <h3 className="text-[22px] font-black text-slate-900 leading-snug">{h.title}</h3>
                                             </div>
                                             <div className="space-y-8">
@@ -674,10 +722,11 @@
                                             <button key={p} onClick={() => changePerspectiveInStep6(p)} className={`py-3 rounded-xl font-bold border transition-all text-[14px] active:scale-95 ${perspective === p ? 'bg-indigo-50 border-indigo-400 text-indigo-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>{p}</button>
                                         ))}
                                     </div>
-                                    <button onClick={() => generateFinalReport(selectedDeepHypoId)} disabled={selectedDeepHypoId === null} className="w-full py-5 bg-slate-900 text-white rounded-[1.2rem] font-black text-[17px] shadow-xl shadow-slate-900/20 active:scale-95 transition-all disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none">최종 통합 리포트 생성</button>
+                                    <button onClick={() => generateFinalReport(selectedDeepHypoId)} disabled={selectedDeepHypoId === null} className="w-full py-5 bg-slate-900 text-white rounded-[1.2rem] font-black shadow-xl active:scale-95 transition-all disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none">최종 통합 리포트 생성</button>
                                 </div>
                             </div>
                         )}
+
                         {step === 7 && finalBrief && (
                             <div className="pt-8 px-5 pb-48 animate-fade-in">
                                 <div className="space-y-6">
@@ -700,6 +749,8 @@
                             </div>
                         )}
                     </main>
+
+                    {/* Step Result Modal (원문 보기) */}
                     {opinionModal.visible && (
                         <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-slate-900/60 p-5 backdrop-blur-sm animate-fade-in">
                             <div className="bg-white text-slate-800 p-8 rounded-[2.5rem] w-full max-w-[390px] shadow-2xl relative border border-slate-100 overflow-hidden flex flex-col max-h-[85vh]">
