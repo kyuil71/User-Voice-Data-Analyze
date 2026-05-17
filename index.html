@@ -68,7 +68,7 @@
 
             ANALYSIS: (perspective, input, note) => `You are a Senior Root Cause Analyst. Strictly lens: [${perspective}]. \n${note ? `[Revision Request]: ${note}` : ""}\nDerivate 3 to 6 distinct 5Why chains. Format: Why [N]\\n왜 [질문]?\\n→ [답변]\\n핵심: [대학생이 쉽게 이해할 수 있는 명확한 요약].\n[중요]: 오직 JSON 형식으로만 즉시 출력하십시오.\nReturn ONLY a JSON: { "rootCauses": [ { "id": 1, "chain": ["Why 1\\\\n왜...\\\\n→...\\\\n핵심:...","Why 2...","Why 3...","Why 4...","Why 5..."], "realCause": "..." } ] }`,
             
-            HYPOTHESIS: (perspective, input, cause, note) => `# Role: 전문 UX 전략 컨설턴트. # Context: 도출된 '5Why 진짜 원인'과 선택된 [${perspective}]을 바탕으로 확장 가설 제시. \n${note ? `[수정 요청 반영]: ${note}` : ""}\n[중요1]: 반드시 [${perspective}]에 철저히 입각하여, 이 관점만의 독특하고 차별화된 전략적 해결책을 도출해야 합니다.\n[중요2]: 반드시 정확히 2개의 제안(가설)만 생성하십시오.\n[중요3]: Step 1(VOC 기반 이슈), Step 2(디자인 솔루션 제안), Step 3(사용자 가치 및 기대 효과) 각각의 내용은 반드시 3~4줄 분량으로, 대학생이 쉽게 이해할 수 있는 평이하고 명확한 수준으로 매우 깊이 있고 풍부한 인사이트가 담기도록 상세하게 작성하십시오.\n[중요4]: 특히 'Step 1. VOC 기반 이슈'의 내용은 반드시 사용자 인터뷰를 통해 발견한 실제 Voice(목소리)를 직접 인용하거나 구체적으로 언급하며, 생생하고 실질적인 현장 내용이 들어가는 것처럼 실감나게 작성해야 합니다.\n[중요5]: 응답 속도 최적화를 위해 오직 JSON 형식으로만 즉시 출력하십시오.\nReturn ONLY a JSON: { "hypotheses": [ { "id": 1, "title": "...", "step1": "...", "step2": "...", "step3": "..." }, { "id": 2, "title": "...", "step1": "...", "step2": "...", "step3": "..." } ] }`
+            HYPOTHESIS: (perspective, input, cause, note) => `# Role: 전문 UX 전략 컨설턴트. # Context: 도출된 '5Why 진짜 원인'과 선택된 [${perspective}]을 바탕으로 확장 가설 제시. \n${note ? `[수정 요청 반영]: ${note}` : ""}\n[중요1]: 반드시 [${perspective}]에 철저히 입각하여, 이 관점만의 독특하고 차별화된 전략적 해결책을 도출해야 합니다.\n[중요2]: 반드시 정확히 2개의 제안(가설)만 생성하십시오.\n[중요3]: Step 1(VOC 기반 이슈), Step 2(디자인 솔루션 제안), Step 3(사용자 가치 및 기대 효과) 각각의 내용은 반드시 3~4줄 분량으로, 대학생이 쉽게 이해할 수 있는 평이하고 명확한 수준으로 매우 깊이 있고 풍부한 인사이트가 담기도록 상세하게 작성하십시오.\n[중요4]: 특히 'Step 1. VOC 기반 이슈'의 내용은 반드시 사용자 인터뷰를 통해 발견한 실제 Voice(목소리)를 직접 인용하거나 구체적으로 언급하며, 생생하고 실질적인 현장 내용이 들어가는 것처럼 실감나게 작성해야 합니다.\n[중요5]: 응답 속도 최적화를 위해 오직 JSON 형식으로만 즉시 출력하십시오.\nReturn ONLY a JSON: { "hypotheses": [ { "id": 1, "title": "...", "step1": "...", "step2": "...", "step3": "...", "step3": "..." } ] }`
         };
 
         const AIQuestionBox = ({ qaInput, setQaInput, askAI }) => (
@@ -96,39 +96,39 @@
             const canGoBack = step > 1;
             
             const getDynamicTitle = () => {
-                if (step === 1) return "사용자 데이터 입력";
-                if (step === 2) return "전체 Affinity 분석";
-                if (step === 3) return "UX/Design Affinity 분석";
-                if (step === 4) return "원인 분석 대상 설정";
-                if (step === 5) return "5Whys 분석 결과";
-                if (step === 6) return "디자인 인사이트 도출";
+                if (step === 1) return "데이터 입력";
+                if (step === 2) return "Affinity 분석";
+                if (step === 3) return "UX 이슈 도출";
+                if (step === 4) return "분석 대상 설정";
+                if (step === 5) return "원인 분석";
+                if (step === 6) return "컨셉 도출";
                 return "";
             };
 
             return (
-                <header className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md px-5 h-16 flex items-center justify-between max-w-[430px] mx-auto border-b border-slate-100">
-                    <div className="flex items-center gap-3 flex-1 overflow-hidden">
+                <header className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md px-5 h-14 flex items-center justify-between max-w-[430px] mx-auto border-b border-slate-100">
+                    <div className="flex items-center gap-2 flex-1 overflow-hidden">
                         {canGoBack ? (
-                            <button onClick={() => setStep(s => s - 1)} className="p-1 -ml-1 text-slate-900 transition-colors active:scale-95 shrink-0" title="뒤로 가기">
-                                <Icon name="ChevronLeft" size={28} />
+                            <button onClick={() => setStep(s => s - 1)} className="p-1 -ml-1 text-slate-800 transition-colors active:scale-95 shrink-0" title="뒤로 가기">
+                                <Icon name="ChevronLeft" size={20} />
                             </button>
-                        ) : <div className="w-8 shrink-0"></div>}
-                        <h1 className="font-black text-[22px] text-slate-900 tracking-tight truncate pb-0.5">{getDynamicTitle()}</h1>
+                        ) : <div className="w-7 shrink-0"></div>}
+                        <h1 className="font-bold text-[16px] text-slate-800 tracking-tight truncate pb-0.5">{getDynamicTitle()}</h1>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
                         {canGoForward && (
-                            <button onClick={() => setStep(s => s + 1)} className="p-1 text-slate-900 transition-colors active:scale-95" title="앞으로 가기">
-                                <Icon name="ChevronRight" size={28} />
+                            <button onClick={() => setStep(s => s + 1)} className="p-1 text-slate-700 transition-colors active:scale-95" title="앞으로 가기">
+                                <Icon name="ChevronRight" size={20} />
                             </button>
                         )}
-                        <button onClick={copyAccumulatedContent} className="p-1 text-slate-900 transition-colors active:scale-95" title="리포트 복사">
-                            <Icon name="Copy" size={24} />
+                        <button onClick={copyAccumulatedContent} className="p-1 text-slate-700 transition-colors active:scale-95" title="리포트 복사">
+                            <Icon name="Copy" size={20} />
                         </button>
-                        <button onClick={resetAll} className="p-1 text-slate-900 transition-colors active:scale-95" title="데이터 입력 화면으로">
-                            <Icon name="Home" size={24} />
+                        <button onClick={resetAll} className="p-1 text-slate-700 transition-colors active:scale-95" title="데이터 입력 화면으로">
+                            <Icon name="Home" size={20} />
                         </button>
-                        <button onClick={exportProject} className="p-1 -mr-1 text-slate-900 transition-colors active:scale-95" title="프로젝트 수동 저장">
-                            <Icon name="Download" size={24} />
+                        <button onClick={exportProject} className="p-1 -mr-1 text-slate-700 transition-colors active:scale-95" title="프로젝트 수동 저장">
+                            <Icon name="Download" size={20} />
                         </button>
                     </div>
                 </header>
@@ -625,7 +625,7 @@
 
                         {step === 2 && step1Result && (
                             <div className="pt-8 px-5 pb-32 animate-fade-in">
-                                <StepTitle title="전체 Affinity 분석" desc="데이터에서 도출된 핵심 카테고리를 확인해 주세요." />
+                                <StepTitle title="전체 데이터 기반\n핵심 카테고리 분석" desc="데이터에서 도출된 핵심 카테고리들을 확인하고 전반적인 동향을 파악해 주세요." />
                                 <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white mb-8 shadow-2xl relative overflow-hidden">
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/20 rounded-full blur-3xl"></div>
                                     <span className="bg-blue-600/20 text-blue-300 border border-blue-500/30 px-4 py-1.5 rounded-full font-black uppercase mb-5 inline-block text-[13px]">EXECUTIVE SUMMARY</span>
@@ -649,7 +649,7 @@
 
                         {step === 3 && step2Result && (
                             <div className="pt-8 px-5 pb-48 animate-fade-in">
-                                <StepTitle title="UX/Design Affinity 분석" desc="UX/디자인 관점의 핵심 이슈를 확인하고 대상을 선택해 주세요." />
+                                <StepTitle title="UX/디자인 관점\n핵심 이슈 도출" desc="UX/디자인 관점의 핵심 이슈를 확인하고, 심층 분석할 대상을 하나 선택해 주세요." />
                                 <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white mb-8 shadow-2xl text-justify relative overflow-hidden">
                                     <div className="absolute top-0 left-0 w-32 h-32 bg-indigo-500/20 rounded-full blur-3xl"></div>
                                     <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-4 py-1.5 rounded-full font-black uppercase mb-5 inline-block text-[13px]">UX/DESIGN SUMMARY</span>
@@ -679,7 +679,7 @@
 
                         {step === 4 && (
                             <div className="pt-8 px-6 pb-48 animate-fade-in">
-                                <StepTitle title="원인 분석 대상 설정" desc="5Whys 기법으로 깊이 파고들 이슈를 확인해 주세요." />
+                                <StepTitle title="심층 원인 분석을 위한\n대상 이슈 설정" desc="5Whys 기법으로 원인을 분석할 대상을 확인하고, 필요시 내용을 직접 수정하여 분석 방향을 설정해 주세요." />
                                 <div className="bg-white p-6 rounded-[2rem] card-shadow border border-orange-100 mb-8"><textarea value={deepDiveInput} onChange={(e) => setDeepDiveInput(e.target.value)} className="w-full h-64 outline-none text-[17px] text-slate-700 font-light resize-none leading-relaxed"></textarea></div>
                                 <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel border-t max-w-[430px] mx-auto z-40"><button onClick={() => start5WhysAnalysis()} className="w-full py-5 bg-slate-900 text-white rounded-[1.2rem] font-black shadow-xl active:scale-95 transition-all">5Whys 원인 분석 실행</button></div>
                             </div>
@@ -687,7 +687,7 @@
 
                         {step === 5 && rootCauses.length > 0 && (
                             <div className="pt-8 px-5 pb-64 animate-fade-in">
-                                <StepTitle title="5Whys 분석 결과" desc="가장 근본적인 진짜 원인(Real Cause)을 선택해 주세요." />
+                                <StepTitle title="5Whys 기법 기반\n근본 원인 파악" desc="분석된 여러 원인 사슬 중, 가장 근본적인 진짜 원인(Real Cause)을 하나 선택해 주세요." />
                                 <div className="space-y-6">
                                     {rootCauses.map((rc) => (
                                         <div key={rc.id} className={`p-7 rounded-[2rem] transition-all duration-300 card-shadow bg-white ${selectedCauseId === rc.id ? 'border-[3px] border-orange-500 ring-4 ring-orange-500/10' : 'border border-slate-100/60 hover:border-slate-300'}`}>
@@ -723,7 +723,7 @@
 
                         {step === 6 && deepHypotheses.length > 0 && (
                             <div className="pt-8 px-5 pb-48 animate-fade-in">
-                                <StepTitle title="디자인 인사이트 도출" desc="도출된 최종 가설과 해결 방안을 확인해 주세요." />
+                                <StepTitle title="핵심 추론 기반\n디자인 컨셉" desc="마음에 드는 컨셉 하나를 선택해 시나리오를 확인하세요." />
                                 <div className="grid gap-6">
                                     {deepHypotheses.map(h => (
                                         <div key={h.id} className="p-8 rounded-[2.5rem] transition-all duration-300 card-shadow bg-white border border-slate-100/60 hover:border-slate-300">
