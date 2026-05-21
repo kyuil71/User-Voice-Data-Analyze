@@ -107,7 +107,7 @@
 
             return (
                 <header className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md px-5 h-16 flex items-center justify-between max-w-[430px] mx-auto border-b border-slate-100">
-                    <div className="flex items-center gap-2 flex-1 overflow-hidden">
+                    <div className="flex items-center gap-3 flex-1 overflow-hidden">
                         {canGoBack ? (
                             <button onClick={() => setStep(s => s - 1)} className="p-1 -ml-1 text-slate-800 transition-colors active:scale-95 shrink-0" title="뒤로 가기">
                                 <Icon name="ChevronLeft" size={28} />
@@ -723,7 +723,7 @@
 
                         {step === 6 && deepHypotheses.length > 0 && (
                             <div className="pt-8 px-5 pb-80 animate-fade-in">
-                                <StepTitle title="최종 제안하는 디자인 컨셉을 확인하세요" desc="도출된 최종 가설과 해결 방안을 확인해 주세요." />
+                                <StepTitle title="원인 기반의 디자인 컨셉 제안" desc="최종 제안하는 디자인 컨셉을 확인하세요" />
                                 <div className="grid gap-6">
                                     {deepHypotheses.map(h => (
                                         <div key={h.id} className="p-8 rounded-[2.5rem] transition-all duration-300 card-shadow bg-white border border-slate-100/60 hover:border-slate-300">
@@ -756,7 +756,6 @@
                         )}
                     </main>
 
-                    {/* Step Result Modal (원문 보기) */}
                     {opinionModal.visible && (
                         <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-slate-900/60 p-5 backdrop-blur-sm animate-fade-in">
                             <div className="bg-white text-slate-800 p-8 rounded-[2.5rem] w-full max-w-[390px] shadow-2xl relative border border-slate-100 overflow-hidden flex flex-col max-h-[85vh]">
