@@ -271,4 +271,526 @@
             const importProject = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
-                const reader
+                const reader = new FileReader();
+                reader.onload = async (ev) => {
+                    try {
+                        const data = JSON.parse(ev.target.result);
+                        if (data && data.state) {
+                            const s = data.state;
+                            setRawData(s.rawData || "");
+                            setItemCount(s.itemCount || 0);
+                            setStep1Result(s.step1Result || null);
+                            setStep2Result(s.step2Result || null);
+                            setSelectedCategory(s.selectedCategory || null);
+                            setPerspective(s.perspective || "사용 불편 관점");
+                            setDeepDiveInput(s.deepDiveInput || "");
+                            setRootCauses(s.rootCauses || []);
+                            setSelectedCauseId(s.selectedCauseId || null);
+                            setDeepHypotheses(s.deepHypotheses || []);
+                            setStep(s.step > 0 ? Math.min(s.step, 6) : 1);
+                            alert("기존 프로젝트를 성공적으로 불러왔습니다. 이제 5초 간격으로 브라우저에 자동 임시 저장됩니다.");
+                        }
+                    } catch (err) {
+                        alert("잘못되거나 손상된 프로젝트 파일입니다.");
+                    }
+                };
+                reader.readAsText(file);
+                e.target.value = null; 
+            };
+
+            useEffect(() => { setTimeout(() => window.scrollTo(0,0), 50); }, [step]);
+
+            const processAndLimitData = (text, showWarning = false) => {
+                const lines = text.split('\n').filter(line => line.trim().length > 0);
+                if (lines.length > 500) {
+                    if (showWarning) alert(`입력된 데이터가 500개를 초과하여 상위 500개만 분석을 진행합니다.`);
+                    const limitedLines = lines.slice(0, 500);
+                    return { finalData: limitedLines.join('\n'), count: 500 };
+                }
+                return { finalData: lines.join('\n'), count: lines.length };
+            };
+
+            const updateDataAndCount = (text) => {
+                const { finalData, count } = processAndLimitData(text, false);
+                setRawData(finalData);
+                setItemCount(count);
+            };
+
+            const handleFileUpload = (e) => {
+                const f = e.target.files[0];
+                if (!f) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    try {
+                        const data = new Uint8Array(ev.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                        const json = XLSX.utils.sheet_to_json(worksheet, {header: 1});
+                        const text = json.map(row => row.join(' ')).join('\n');
+                        const { finalData, count } = processAndLimitData(text, true);
+                        setRawData(finalData);
+                        setItemCount(count);
+                    } catch(err) { alert("파일 처리 중 오류 발생"); }
+                };
+                reader.readAsArrayBuffer(f);
+                e.target.value = null; 
+            };
+
+            const callGemini = async (prompt, isJson = true, systemInstruction = null, showLoading = true) => {
+                if(showLoading) setIsAnalyzing(true);
+                let delay = 500; 
+                for (let i = 0; i < 5; i++) {
+                    try {
+                        const payload = {
+                            contents: [{ parts: [{ text: prompt }] }],
+                            generationConfig: isJson ? { responseMimeType: "application/json" } : {},
+                            safetySettings: [
+                                { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+                                { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+                                { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+                                { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+                            ]
+                        };
+                        if (systemInstruction) payload.systemInstruction = { parts: [{ text: systemInstruction }] };
+                        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        if (!response.ok) throw new Error(`API 오류 (${response.status})`);
+                        const result = await response.json();
+                        const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                        const jsonStr = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
+                        if(showLoading) setIsAnalyzing(false);
+                        return isJson ? JSON.parse(jsonStr) : text;
+                    } catch (err) {
+                        if (i === 4) { if(showLoading) setIsAnalyzing(false); throw err; }
+                        await new Promise(r => setTimeout(r, delay)); delay *= 1.5;
+                    }
+                }
+            };
+
+            const validateKey = async (inputKey) => {
+                if (!inputKey) return;
+                setLoadingMsg("API 키 확인 중...");
+                setIsAnalyzing(true);
+                try {
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${inputKey}`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents: [{ parts: [{ text: "OK" }] }] })
+                    });
+                    if (response.ok) {
+                        setApiKey(inputKey);
+                        const savedData = await loadFromDB("autosave_project");
+                        if (savedData && savedData.state) {
+                            if (window.confirm("이전에 작업 중이던 임시 저장 데이터가 있습니다. 이어서 진행하시겠습니까?\n(취소 시 기존 데이터는 삭제되고 새로 시작합니다)")) {
+                                const s = savedData.state;
+                                setRawData(s.rawData || "");
+                                setItemCount(s.itemCount || 0);
+                                setStep1Result(s.step1Result || null);
+                                setStep2Result(s.step2Result || null);
+                                setSelectedCategory(s.selectedCategory || null);
+                                setPerspective(s.perspective || "사용 불편 관점");
+                                setDeepDiveInput(s.deepDiveInput || "");
+                                setRootCauses(s.rootCauses || []);
+                                setSelectedCauseId(s.selectedCauseId || null);
+                                setDeepHypotheses(s.deepHypotheses || []);
+                                setStep(s.step > 0 ? Math.min(s.step, 6) : 1);
+                            } else {
+                                await clearDB("autosave_project");
+                                setStep(1);
+                            }
+                        } else {
+                            setStep(1);
+                        }
+                        setError(null);
+                    } else throw new Error();
+                } catch { setError("API 인증 실패. 키를 확인해 주세요."); }
+                finally { setIsAnalyzing(false); }
+            };
+
+            const askAI = async (note) => {
+                if(!note) return;
+                setLoadingMsg("요청 반영 중...");
+                try {
+                    if (step === 2) await handleStep1Analysis(note);
+                    else if (step === 3) await handleStep2Analysis(note);
+                    else if (step === 5) await start5WhysAnalysis(note);
+                    else if (step === 6) await exploreDeepHypotheses(selectedCauseId, note);
+                    setQaInput("");
+                } catch { setError("오류 발생"); }
+            };
+
+            const handleStep1Analysis = async (note = null) => {
+                setIsAnalyzing(true);
+                setLoadingMsg("1단계 분석 중 (카테고리 구성)...");
+                try {
+                    const lines = rawData.split('\n');
+                    const planRes = await callGemini(PROMPTS.STEP1_PLAN(rawData, note), true, null, false);
+                    if (!planRes || !planRes.categoryNames) throw new Error("분석 플랜 생성 실패");
+                    const detailPromises = planRes.categoryNames.map(async (catName) => {
+                        const detailRes = await callGemini(PROMPTS.STEP1_DETAIL(rawData, catName), true, null, false);
+                        const opinionString = (detailRes.opinions || "").toString();
+                        const opinionArray = opinionString.split(',').map(id => lines[parseInt(id.trim(), 10)]).filter(Boolean);
+                        return { name: catName, summary: detailRes.summary, count: detailRes.count, opinions: opinionArray };
+                    });
+                    const categories = await Promise.all(detailPromises);
+                    setStep1Result({ summary: planRes.summary, categories }); 
+                    setStep(2);
+                } catch { setError("분석 실패. 데이터 형식을 확인해 주세요."); }
+                finally { setIsAnalyzing(false); }
+            };
+
+            const handleStep2Analysis = async (note = null) => {
+                setIsAnalyzing(true);
+                setLoadingMsg("2단계 분석 중 (UX 이슈 구성)...");
+                try {
+                    const lines = rawData.split('\n');
+                    const planRes = await callGemini(PROMPTS.STEP2_PLAN(rawData, note), true, null, false);
+                    if (!planRes || !planRes.categoryNames) throw new Error("분석 플랜 생성 실패");
+                    const detailPromises = planRes.categoryNames.map(async (catName) => {
+                        const detailRes = await callGemini(PROMPTS.STEP2_DETAIL(rawData, catName), true, null, false);
+                        const opinionString = (detailRes.opinions || "").toString();
+                        const opinionArray = opinionString.split(',').map(id => lines[parseInt(id.trim(), 10)]).filter(Boolean);
+                        return { name: catName, summary: detailRes.summary, count: detailRes.count, opinions: opinionArray };
+                    });
+                    const uxCategories = await Promise.all(detailPromises);
+                    setStep2Result({ summary: planRes.summary, uxCategories }); 
+                    setStep(3);
+                } catch { setError("분석 실패. 데이터 형식을 확인해 주세요."); }
+                finally { setIsAnalyzing(false); }
+            };
+
+            const start5WhysAnalysis = async (note = null) => {
+                setLoadingMsg("5Whys 분석 중...");
+                try {
+                    const res = await callGemini(`Input: ${deepDiveInput}`, true, PROMPTS.ANALYSIS(perspective, deepDiveInput, note));
+                    if (res && res.rootCauses) { setRootCauses(res.rootCauses); setSelectedCauseId(null); setStep(5); }
+                } catch { setError("분석 실패"); }
+            };
+
+            const changePerspective = async (p) => {
+                if (perspective === p) return; setPerspective(p);
+                setLoadingMsg(`${p} 관점 재분석...`);
+                try {
+                    const res = await callGemini(`Input: ${deepDiveInput}`, true, PROMPTS.ANALYSIS(p, deepDiveInput));
+                    if (res && res.rootCauses) { setRootCauses(res.rootCauses); setSelectedCauseId(null); }
+                } catch { setError("오류 발생"); }
+            };
+
+            const changePerspectiveInStep6 = async (p) => {
+                if (perspective === p) return; setPerspective(p);
+                setLoadingMsg(`${p} 관점 인사이트 도출...`);
+                const selected = rootCauses.find(c => c.id === selectedCauseId);
+                try {
+                    const res = await callGemini(`Cause: ${selected.realCause}`, true, PROMPTS.HYPOTHESIS(p, deepDiveInput, selected.realCause));
+                    if(res && res.hypotheses) { setDeepHypotheses(res.hypotheses); }
+                } catch { setError("오류 발생"); }
+            };
+
+            const exploreDeepHypotheses = (id, note = null) => {
+                setSelectedCauseId(id);
+                const selected = rootCauses.find(c => c.id === id);
+                setLoadingMsg("인사이트 도출 중...");
+                callGemini(`Cause: ${selected.realCause}`, true, PROMPTS.HYPOTHESIS(perspective, deepDiveInput, selected.realCause, note))
+                    .then(res => { if(res && res.hypotheses) { setDeepHypotheses(res.hypotheses); setStep(6); } });
+            };
+
+            const fallbackCopyTextToClipboard = (text, successMsg) => {
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try { document.execCommand('copy'); alert(successMsg); } 
+                catch (err) { alert("복사에 실패했습니다. 브라우저 설정을 확인해 주세요."); }
+                document.body.removeChild(textArea);
+            };
+
+            const copyAccumulatedContent = () => {
+                let text = "[누적 분석 리포트]\n\n";
+                if (step >= 2 && step1Result) {
+                    text += "--- 1단계: 전체 데이터 분석 ---\n";
+                    text += `Executive Summary: ${step1Result.summary}\n\n`;
+                    step1Result.categories.forEach(c => text += `[${c.name}]\n${c.summary}\n\n`);
+                }
+                if (step >= 3 && step2Result) {
+                    text += "--- 2단계: UX/DESIGN 심화 분석 ---\n";
+                    text += `UX/Design Summary: ${step2Result.summary}\n\n`;
+                    step2Result.uxCategories.forEach(c => text += `[${c.name}]\n${c.summary}\n\n`);
+                }
+                if (step >= 4 && deepDiveInput) {
+                    text += "--- 3단계: 분석 대상 가설 ---\n" + deepDiveInput + "\n\n";
+                }
+                if (step >= 5 && selectedCauseId) {
+                    const cause = rootCauses.find(c => c.id === selectedCauseId);
+                    if(cause) text += "--- 4단계: 5Whys 분석 결과 ---\n" + cause.chain.join('\n') + `\nReal Cause: ${cause.realCause}\n\n`;
+                }
+                if (step >= 6 && deepHypotheses.length > 0) {
+                    text += `--- 5단계: 디자인 인사이트 제안 ---\n`;
+                    deepHypotheses.forEach((hypo, index) => {
+                        text += `\n[가설 ${index + 1}: ${hypo.title}]\n`;
+                        text += `Step 1. VOC 기반 이슈: ${hypo.step1}\n\n`;
+                        text += `Step 2. 디자인 솔루션 제안: ${hypo.step2}\n\n`;
+                        text += `Step 3. 사용자 가치 및 기대 효과: ${hypo.step3}\n\n`;
+                    });
+                }
+
+                if (navigator.clipboard && window.isSecureContext) {
+                    navigator.clipboard.writeText(text).then(() => alert("전체 누적 리포트가 복사되었습니다.")).catch(() => fallbackCopyTextToClipboard(text, "전체 누적 리포트가 복사되었습니다."));
+                } else { fallbackCopyTextToClipboard(text, "전체 누적 리포트가 복사되었습니다."); }
+            };
+
+            const copyRawDataModal = (text) => { 
+                if (navigator.clipboard && window.isSecureContext) {
+                    navigator.clipboard.writeText(text).then(() => alert("원문 데이터 복사됨")).catch(() => fallbackCopyTextToClipboard(text, "원문 데이터 복사됨"));
+                } else { fallbackCopyTextToClipboard(text, "원문 데이터 복사됨"); }
+            };
+
+            const resetAll = async () => { 
+                setStep(1); setStep1Result(null); setStep2Result(null); setSelectedCategory(null); 
+                setRawData(""); setItemCount(0); setPerspective("사용 불편 관점"); 
+                setRootCauses([]); setDeepHypotheses([]);
+                await clearDB("autosave_project");
+            };
+
+            return (
+                <div className="w-full max-w-[430px] mx-auto bg-[#f8fafc] min-h-screen relative font-sans text-slate-900 pb-10 shadow-[0_0_60px_rgba(0,0,0,0.05)]">
+                    {isAnalyzing && (
+                        <div className="fixed inset-0 z-[10000] bg-white/95 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center max-w-[430px] mx-auto">
+                            <div className="w-14 h-14 rounded-full border-4 border-slate-100 border-t-blue-600 animate-spin mb-6"></div>
+                            <h3 className="text-[20px] font-black text-[#0f172a] tracking-tight">AI 분석 중</h3>
+                        </div>
+                    )}
+
+                    {error && (
+                        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/40 p-6 backdrop-blur-sm">
+                            <div className="bg-white p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl border border-slate-100">
+                                <Icon name="AlertCircle" size={32} className="text-red-500 mx-auto mb-5" />
+                                <p className="text-slate-700 mb-8 font-bold">{error}</p>
+                                <button onClick={() => setError(null)} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold">확인</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {step > 0 && (
+                        <Header step={step} setStep={setStep} copyAccumulatedContent={copyAccumulatedContent} resetAll={resetAll} step1Result={step1Result} step2Result={step2Result} selectedCategory={selectedCategory} rootCauses={rootCauses} deepHypotheses={deepHypotheses} exportProject={exportProject} />
+                    )}
+
+                    <main id="main-content" className={step === 0 ? "" : "pt-14"}>
+                        {step === 0 && (
+                            <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-gradient-to-b from-[#e0f2fe] via-white to-[#e0f2fe] text-center animate-fade-in">
+                                <div className="w-full mb-10 px-2 mt-[-10vh]">
+                                    <h1 className="font-black tracking-tight text-[#0f172a] leading-[1.2] text-[36px] mb-4">User Voice Analysis<br/>& Insight</h1>
+                                    <p className="text-slate-500 font-bold text-[16px]">사용자 리뷰 데이터 분석 자동화 도구</p>
+                                </div>
+                                <div className="w-full bg-white p-8 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] space-y-6">
+                                    <div>
+                                        <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-blue-600 font-bold text-[15px] hover:text-blue-700 transition-colors">API Key 발급받기</a>
+                                    </div>
+                                    <input type="password" id="api-key-input" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-center outline-none focus:border-blue-400 transition-colors text-[15px] font-medium text-slate-700 placeholder:text-slate-400" placeholder="Gemini API Key 입력" />
+                                    <button onClick={() => validateKey(document.getElementById('api-key-input').value)} className="w-full py-4 bg-[#0f172a] hover:bg-slate-800 text-white rounded-xl font-black text-[16px] shadow-lg active:scale-95 transition-all">시작하기</button>
+                                </div>
+                            </div>
+                        )}
+
+                        {step === 1 && (
+                            <div className="flex flex-col min-h-screen bg-slate-900 text-white p-8 pt-10 justify-center relative overflow-hidden animate-fade-in">
+                                <div className="absolute top-[-10%] left-[-20%] w-[140%] h-[70%] bg-gradient-to-br from-indigo-600/30 to-blue-500/20 rounded-full blur-[100px] pointer-events-none"></div>
+                                <div className="relative z-10 space-y-12">
+                                    <div className="space-y-6">
+                                        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 border border-white/20 font-bold uppercase tracking-widest text-[14px] backdrop-blur-sm">INTEGRATED INTELLIGENCE</div>
+                                        <h1 className="font-black leading-tight tracking-tighter text-42px">데이터 기반으로<br/>사용자 마음을<br/><span className="text-blue-400 text-45px">발견하세요.</span></h1>
+                                        <p className="text-slate-400 leading-relaxed text-[17px] font-light">Raw 데이터 분석에서 5Whys 진짜 원인 파악까지 한번에 진행하는 올인원 도구입니다.</p>
+                                    </div>
+                                    <div className="space-y-5">
+                                        <div>
+                                            <textarea rows={5} value={rawData} onChange={(e) => updateDataAndCount(e.target.value)} className="w-full bg-[#1e293b] border border-slate-500 focus:border-blue-400 rounded-[2rem] p-7 text-white outline-none text-[16px] resize-none leading-relaxed transition-colors shadow-inner" placeholder="수집한 User Voice 데이터를 입력하거나 업로드 하세요"></textarea>
+                                            {itemCount > 0 ? (
+                                                <p className="text-right text-blue-400 font-bold text-[15px] mt-3 pr-3 animate-fade-in tracking-wide">
+                                                    ✓ 분석 반영 데이터: <span className="text-white">{itemCount}</span>개 {itemCount >= 500 ? <span className="text-orange-400 ml-1">(최대 한도 500개 적용됨)</span> : null}
+                                                </p>
+                                            ) : null}
+                                        </div>
+                                        <div className="flex gap-3 mt-10">
+                                            <input type="file" id="file-up" className="hidden" onChange={handleFileUpload} />
+                                            <label htmlFor="file-up" className="flex-1 bg-white/10 hover:bg-white/15 py-4 rounded-[1.2rem] text-center font-bold cursor-pointer transition-colors flex items-center justify-center">파일 업로드</label>
+                                            <button onClick={() => handleStep1Analysis()} disabled={!rawData.trim()} className="flex-1 bg-blue-600 disabled:bg-slate-700 text-white rounded-[1.2rem] font-black py-4">분석 시작</button>
+                                        </div>
+                                        <div className="mt-3">
+                                            <input type="file" id="import-project" accept=".json" className="hidden" onChange={importProject} />
+                                            <label htmlFor="import-project" className="w-full bg-transparent border border-white/20 hover:bg-white/10 py-4 rounded-[1.2rem] text-center font-bold cursor-pointer transition-colors flex items-center justify-center text-white/80">기존 프로젝트 열기 (.json)</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {step === 2 && step1Result && (
+                            <div className="pt-8 px-5 pb-32 animate-fade-in">
+                                <StepTitle title="전체 Affinity 분석" desc="데이터에서 도출된 핵심 카테고리를 확인해 주세요." />
+                                <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white mb-8 shadow-2xl relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/20 rounded-full blur-3xl"></div>
+                                    <span className="bg-blue-600/20 text-blue-300 border border-blue-500/30 px-4 py-1.5 rounded-full font-black uppercase mb-5 inline-block text-[13px]">EXECUTIVE SUMMARY</span>
+                                    <p className="text-[17px] font-light leading-[1.8] text-slate-200 text-justify whitespace-pre-line relative z-10">"{step1Result.summary}"</p>
+                                </div>
+                                <div className="space-y-5">
+                                    {step1Result.categories.map((cat, i) => (
+                                        <div key={i} className="bg-white p-7 rounded-[2rem] card-shadow border border-slate-100 flex flex-col transition-all hover:border-slate-300">
+                                            <div className="flex justify-between items-start mb-5">
+                                                <h3 className="font-black text-slate-800 text-[20px] leading-tight pr-2 flex-1">{cat.name}</h3>
+                                                <button onClick={() => setOpinionModal({ visible: true, title: cat.name, opinions: cat.opinions })} className="bg-slate-50 px-4 py-1.5 rounded-xl border border-slate-100 font-bold text-slate-500 text-[14px] shrink-0 ml-2 hover:bg-slate-100 transition-colors whitespace-nowrap">{cat.opinions ? cat.opinions.length : 0}건 확인</button>
+                                            </div>
+                                            <p className="text-slate-600 font-light leading-relaxed whitespace-pre-line">{cat.summary}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="mt-8"><AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} /></div>
+                                <div className="fixed bottom-0 left-0 right-0 p-5 glass-panel border-t max-w-[430px] mx-auto z-[60]"><button onClick={() => handleStep2Analysis()} className="w-full py-5 bg-slate-900 text-white rounded-[1.2rem] font-black text-lg active:scale-95 transition-all">UX/디자인 심화 분석 이동</button></div>
+                            </div>
+                        )}
+
+                        {step === 3 && step2Result && (
+                            <div className="pt-8 px-5 pb-48 animate-fade-in">
+                                <StepTitle title="UX/Design Affinity 분석" desc="UX/디자인 관점의 핵심 이슈를 확인하고 대상을 선택해 주세요." />
+                                <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white mb-8 shadow-2xl text-justify relative overflow-hidden">
+                                    <div className="absolute top-0 left-0 w-32 h-32 bg-indigo-500/20 rounded-full blur-3xl"></div>
+                                    <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-4 py-1.5 rounded-full font-black uppercase mb-5 inline-block text-[13px]">UX/DESIGN SUMMARY</span>
+                                    <p className="text-[17px] font-light leading-[1.8] text-slate-200 relative z-10">"{step2Result.summary}"</p>
+                                </div>
+                                <div className="space-y-5 mb-12">
+                                    {step2Result.uxCategories.map((cat, i) => (
+                                        <div key={i} className={`p-7 rounded-[2.5rem] transition-all duration-300 card-shadow bg-white ${selectedCategory?.name === cat.name ? 'border-[3px] border-indigo-500 ring-4 ring-indigo-500/10' : 'border border-slate-100/60 hover:border-slate-300'}`}>
+                                            <div className="flex justify-between items-start mb-5">
+                                                <h3 className="font-black text-20px flex-1 text-slate-800 leading-tight pr-2">{cat.name}</h3>
+                                                <div className="flex flex-col items-end gap-2.5 shrink-0 ml-2">
+                                                    <button onClick={() => setOpinionModal({ visible: true, title: cat.name, opinions: cat.opinions })} className="bg-slate-50 px-4 py-1.5 rounded-xl border border-slate-100 text-slate-500 font-bold text-[13px] hover:bg-slate-100 transition-colors whitespace-nowrap">{cat.opinions ? cat.opinions.length : 0}건 원문 보기</button>
+                                                    <button onClick={() => { setSelectedCategory(cat); setDeepDiveInput(`이슈: ${cat.name}\n내용: ${cat.summary}`); }} className={`px-6 py-2.5 rounded-xl font-black transition-all shadow-md active:scale-95 text-[15px] ${selectedCategory?.name === cat.name ? 'bg-indigo-600 text-white' : 'bg-slate-900 text-white'}`}>이슈 선택</button>
+                                                </div>
+                                            </div>
+                                            <p className="text-slate-600 text-[17px] font-light text-justify leading-relaxed whitespace-pre-line">{cat.summary}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="mt-8"><AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} /></div>
+                                <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel border-t max-w-[430px] mx-auto z-[60] shadow-2xl">
+                                    <div className="mb-4 text-center text-slate-600 text-[15px] font-bold">{selectedCategory ? `"${selectedCategory.name}" 선택됨` : "항목을 선택하세요"}</div>
+                                    <button disabled={!selectedCategory} onClick={() => setStep(4)} className="w-full py-5 bg-orange-500 text-white rounded-[1.2rem] font-black text-lg active:scale-95 transition-all shadow-xl shadow-orange-500/30 disabled:bg-slate-200 disabled:shadow-none">5Whys 분석 시작</button>
+                                </div>
+                            </div>
+                        )}
+
+                        {step === 4 && (
+                            <div className="pt-8 px-6 pb-48 animate-fade-in">
+                                <StepTitle title="원인 분석 대상 설정" desc="5Whys 기법으로 깊이 파고들 이슈를 확인해 주세요." />
+                                <div className="bg-white p-6 rounded-[2rem] card-shadow border border-orange-100 mb-8"><textarea value={deepDiveInput} onChange={(e) => setDeepDiveInput(e.target.value)} className="w-full h-64 outline-none text-[17px] text-slate-700 font-light resize-none leading-relaxed"></textarea></div>
+                                <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel border-t max-w-[430px] mx-auto z-40"><button onClick={() => start5WhysAnalysis()} className="w-full py-5 bg-slate-900 text-white rounded-[1.2rem] font-black shadow-xl active:scale-95 transition-all">5Whys 원인 분석 실행</button></div>
+                            </div>
+                        )}
+
+                        {step === 5 && rootCauses.length > 0 && (
+                            <div className="pt-8 px-5 pb-64 animate-fade-in">
+                                <StepTitle title="5Whys 분석 결과" desc="가장 근본적인 진짜 원인(Real Cause)을 선택해 주세요." />
+                                <div className="space-y-6">
+                                    {rootCauses.map((rc) => (
+                                        <div key={rc.id} className={`p-7 rounded-[2rem] transition-all duration-300 card-shadow bg-white ${selectedCauseId === rc.id ? 'border-[3px] border-orange-500 ring-4 ring-orange-500/10' : 'border border-slate-100/60 hover:border-slate-300'}`}>
+                                            <div className="flex justify-between items-center mb-6">
+                                                <span className="bg-orange-50 text-orange-600 px-4 py-1.5 rounded-full font-bold text-[14px]">Case {rc.id}</span>
+                                                <button onClick={() => setSelectedCauseId(rc.id)} className={`px-6 py-2 rounded-xl font-black shadow-md active:scale-95 text-[15px] ${selectedCauseId === rc.id ? 'bg-orange-500 text-white' : 'bg-slate-900 text-white'}`}>원인 선택</button>
+                                            </div>
+                                            <div className="space-y-4 mb-8 text-slate-700 text-justify">
+                                                {rc.chain?.map((cStep, idx) => {
+                                                    const lines = cStep.split(/\\n|₩n|\n/);
+                                                    return (
+                                                        <div key={idx} className="mb-4">
+                                                            {lines.map((line, lidx) => (<span key={lidx} className={lidx === 0 ? 'font-black text-slate-900 block text-[17px] mb-1' : 'block font-normal text-slate-600 leading-relaxed text-[16px]'}>{line}</span>))}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                            <div className="pt-6 border-t border-slate-100"><div className="inline-block bg-orange-100 text-orange-600 px-3 py-1 rounded-md text-[12px] font-black mb-3 uppercase">Real Cause</div><p className="text-[18px] font-bold text-slate-800 leading-relaxed">{rc.realCause}</p></div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="mt-8"><AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} /></div>
+                                <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel max-w-[430px] mx-auto z-40 border-t shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
+                                    <div className="grid grid-cols-2 gap-2 mb-5">
+                                        {['사용 불편 관점', '기술 진화 관점', '심미적 관점', '비지니스 관점'].map(p => (
+                                            <button key={p} onClick={() => changePerspective(p)} className={`py-3 rounded-xl text-[14px] font-bold border transition-all active:scale-95 ${perspective === p ? 'bg-orange-50 border-orange-400 text-orange-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>{p}</button>
+                                        ))}
+                                    </div>
+                                    <button onClick={() => exploreDeepHypotheses(selectedCauseId)} disabled={selectedCauseId === null} className="w-full py-5 rounded-[1.2rem] font-black bg-slate-900 text-white shadow-xl active:scale-95 transition-all disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none">디자인 인사이트 도출</button>
+                                </div>
+                            </div>
+                        )}
+
+                        {step === 6 && deepHypotheses.length > 0 && (
+                            <div className="pt-8 px-5 pb-80 animate-fade-in">
+                                <StepTitle title="최종 제안하는 디자인 컨셉을 확인하세요" desc="도출된 최종 가설과 해결 방안을 확인해 주세요." />
+                                <div className="grid gap-6">
+                                    {deepHypotheses.map((h, hIdx) => (
+                                        <div key={hIdx} className="p-8 rounded-[2.5rem] transition-all duration-300 card-shadow bg-white border border-slate-100/60 hover:border-slate-300">
+                                            <div className="flex flex-col mb-6 border-b border-slate-100 pb-5">
+                                                <h3 className="text-[22px] font-black text-slate-900 leading-snug">{h.title}</h3>
+                                            </div>
+                                            <div className="space-y-8">
+                                                {[{t:'Step 1. VOC 기반 이슈', c:h.step1}, {t:'Step 2. 디자인 솔루션 제안', c:h.step2}, {t:'Step 3. 사용자 가치 및 기대 효과', c:h.step3}].map((item, idx) => (
+                                                    <div key={idx} className="relative">
+                                                        <div className="absolute left-0 top-2 w-1.5 h-1.5 rounded-full bg-orange-400"></div>
+                                                        <p className="text-[17px] font-bold text-slate-800 mb-2 pl-4 tracking-wide">{item.t}</p>
+                                                        <p className="text-[17px] text-slate-600 font-light text-justify leading-relaxed whitespace-pre-line pl-4">{item.c}</p>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="mt-8"><AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} /></div>
+                                <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel border-t border-slate-200/50 max-w-[430px] mx-auto z-40 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
+                                    <div className="grid grid-cols-2 gap-2 mb-5">
+                                        {['사용 불편 관점', '기술 진화 관점', '심미적 관점', '비지니스 관점'].map(p => (
+                                            <button
+                                                key={p}
+                                                onClick={() => changePerspectiveInStep6(p)}
+                                                className={`py-3 rounded-xl font-bold border transition-all text-[14px] active:scale-95 ${perspective === p ? 'bg-orange-50 border-orange-400 text-orange-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+                                            >
+                                                {p}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <button onClick={copyAccumulatedContent} className="w-full py-5 bg-blue-600 hover:bg-blue-500 text-white rounded-[1.2rem] font-black text-[17px] shadow-xl shadow-blue-600/30 active:scale-95 transition-all">전체 리포트 복사하기</button>
+                                </div>
+                            </div>
+                        )}
+                    </main>
+
+                    {opinionModal.visible && (
+                        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-slate-900/60 p-5 backdrop-blur-sm animate-fade-in">
+                            <div className="bg-white text-slate-800 p-8 rounded-[2.5rem] w-full max-w-[390px] shadow-2xl relative border border-slate-100 overflow-hidden flex flex-col max-h-[85vh]">
+                                <div className="absolute top-4 right-4 flex items-center z-10">
+                                    <button onClick={() => copyRawDataModal(opinionModal.opinions.join('\n'))} className="w-12 h-12 flex items-center justify-center text-blue-500 hover:bg-blue-50 hover:text-blue-600 rounded-full transition-colors" title="텍스트 복사"><Icon name="Copy" size={24} /></button>
+                                    <button onClick={() => setOpinionModal({ visible: false, title: "", opinions: [] })} className="w-12 h-12 flex items-center justify-center text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-full transition-colors ml-1"><Icon name="X" size={26} /></button>
+                                </div>
+                                <div className="mb-6 pr-20 relative z-10 mt-2">
+                                    <div className="flex items-center gap-2 mb-3"><Icon name="Quote" className="text-blue-500 w-5 h-5" /><span className="text-[13px] font-black text-blue-500 uppercase tracking-widest">Raw Data</span></div>
+                                    <h4 className="text-[20px] font-black text-slate-900 leading-tight">"{opinionModal.title}"</h4>
+                                </div>
+                                <div className="space-y-3 overflow-y-auto pr-2 no-scrollbar flex-1 relative z-10">
+                                    {opinionModal.opinions.map((op, idx) => (
+                                        <div key={idx} className="p-4 bg-slate-50 rounded-2xl border border-slate-100/80 text-justify whitespace-pre-line hover:border-slate-200 transition-colors">
+                                            <p className="text-[16px] font-light leading-relaxed text-slate-700">"{op}"</p>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-white to-transparent pointer-events-none z-20"></div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
