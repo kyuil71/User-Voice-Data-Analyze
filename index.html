@@ -68,9 +68,7 @@
 
             ANALYSIS: (perspective, input, note) => `You are a Senior Root Cause Analyst. Strictly lens: [${perspective}]. \n${note ? `[Revision Request]: ${note}` : ""}\nDerivate 3 to 6 distinct 5Why chains. Format: Why [N]\\n왜 [질문]?\\n→ [답변]\\n핵심: [대학생이 쉽게 이해할 수 있는 명확한 요약].\n[중요]: 오직 JSON 형식으로만 즉시 출력하십시오.\nReturn ONLY a JSON: { "rootCauses": [ { "id": 1, "chain": ["Why 1\\\\n왜...\\\\n→...\\\\n핵심:...","Why 2...","Why 3...","Why 4...","Why 5..."], "realCause": "..." } ] }`,
             
-            HYPOTHESIS: (perspective, input, cause, note) => `# Role: 전문 UX 전략 컨설턴트. # Context: 도출된 '5Why 진짜 원인'과 선택된 [${perspective}]을 바탕으로 확장 가설 제시. \n${note ? `[수정 요청 반영]: ${note}` : ""}\n[중요1]: 반드시 [${perspective}]에 철저히 입각하여, 이 관점만의 독특하고 차별화된 전략적 해결책을 도출해야 합니다.\n[중요2]: 반드시 정확히 2개의 제안(가설)만 생성하십시오.\n[중요3]: Step 1(VOC 기반 이슈), Step 2(디자인 솔루션 제안), Step 3(사용자 가치 및 기대 효과) 각각의 내용은 반드시 3~4줄 분량으로, 대학생이 쉽게 이해할 수 있는 평이하고 명확한 수준으로 매우 깊이 있고 풍부한 인사이트가 담기도록 상세하게 작성하십시오.\n[중요4]: 특히 'Step 1. VOC 기반 이슈'의 내용은 반드시 사용자 인터뷰를 통해 발견한 실제 Voice(목소리)를 직접 인용하거나 구체적으로 언급하며, 생생하고 실질적인 현장 내용이 들어가는 것처럼 실감나게 작성해야 합니다.\n[중요5]: 응답 속도 최적화를 위해 오직 JSON 형식으로만 즉시 출력하십시오.\nReturn ONLY a JSON: { "hypotheses": [ { "id": 1, "title": "...", "step1": "...", "step2": "...", "step3": "..." }, { "id": 2, "title": "...", "step1": "...", "step2": "...", "step3": "..." } ] }`,
-            
-            SUMMARY: (input, cause, hypo, note) => `You are a Senior Insight Strategist.\n${note ? `[수정 요청 반영]: ${note}\n` : ""}[중요1]: "step1"(분석 대상 가설), "step2"(5Whys 분석), "step3"(확장된 문제 가설)의 분석 결과는 각각 반드시 3~4줄 분량으로, 대학생이 쉽게 이해할 수 있는 평이하고 명확한 어휘를 사용하여 풍부하고 상세하게 작성해 주십시오. 단, step2는 Why 1~5를 나열하지 말고 핵심 원인 중심으로 요약해야 합니다.\n[중요2]: "step4" (전략적 해결 방향)의 내용 역시 전체 3~4줄 분량의 풍부한 내용이 되도록 하며, 처음과 끝에 따옴표를 넣지 말고 반드시 아래와 같이 줄바꿈(\\n)을 적용하여 번호순으로 작성해 주십시오.\n1. 내용\n2. 내용\n3. 내용\n[중요3]: 오직 JSON 형식으로만 출력하십시오.\nReturn ONLY a JSON object:\n{\n  "finalReport": {\n    "step1": { "title": "분석 대상 가설", "content": "..." },\n    "step2": { "title": "5Whys 분석", "content": "핵심 원인 3줄 요약..." },\n    "step3": { "title": "확장된 문제 가설", "content": "..." },\n    "step4": { "title": "전략적 해결 방향", "content": "1. ...\\n2. ...\\n3. ..." }\n  }\n}`
+            HYPOTHESIS: (perspective, input, cause, note) => `# Role: 전문 UX 전략 컨설턴트. # Context: 도출된 '5Why 진짜 원인'과 선택된 [${perspective}]을 바탕으로 확장 가설 제시. \n${note ? `[수정 요청 반영]: ${note}` : ""}\n[중요1]: 반드시 [${perspective}]에 철저히 입각하여, 이 관점만의 독특하고 차별화된 전략적 해결책을 도출해야 합니다.\n[중요2]: 반드시 정확히 2개의 제안(가설)만 생성하십시오.\n[중요3]: Step 1(VOC 기반 이슈), Step 2(디자인 솔루션 제안), Step 3(사용자 가치 및 기대 효과) 각각의 내용은 반드시 3~4줄 분량으로, 대학생이 쉽게 이해할 수 있는 평이하고 명확한 수준으로 매우 깊이 있고 풍부한 인사이트가 담기도록 상세하게 작성하십시오.\n[중요4]: 특히 'Step 1. VOC 기반 이슈'의 내용은 반드시 사용자 인터뷰를 통해 발견한 실제 Voice(목소리)를 직접 인용하거나 구체적으로 언급하며, 생생하고 실질적인 현장 내용이 들어가는 것처럼 실감나게 작성해야 합니다.\n[중요5]: 응답 속도 최적화를 위해 오직 JSON 형식으로만 즉시 출력하십시오.\nReturn ONLY a JSON: { "hypotheses": [ { "id": 1, "title": "...", "step1": "...", "step2": "...", "step3": "..." }, { "id": 2, "title": "...", "step1": "...", "step2": "...", "step3": "..." } ] }`
         };
 
         const AIQuestionBox = ({ qaInput, setQaInput, askAI }) => (
@@ -98,20 +96,20 @@
             const canGoBack = step > 1;
             
             const getDynamicTitle = () => {
-                if (step === 1) return "사용자 데이터 입력";
+                if (step === 1) return "데이터 입력";
                 if (step === 2) return "전체 Affinity 분석";
                 if (step === 3) return "UX/Design Affinity 분석";
-                if (step === 4) return "원인 분석 대상 설정";
-                if (step === 5) return "5Whys 분석 결과";
-                if (step === 6) return "디자인 인사이트 도출";
+                if (step === 4) return "분석 대상 설정";
+                if (step === 5) return "원인 분석";
+                if (step === 6) return "컨셉 도출";
                 return "";
             };
 
             return (
                 <header className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md px-5 h-16 flex items-center justify-between max-w-[430px] mx-auto border-b border-slate-100">
-                    <div className="flex items-center gap-3 flex-1 overflow-hidden">
+                    <div className="flex items-center gap-2 flex-1 overflow-hidden">
                         {canGoBack ? (
-                            <button onClick={() => setStep(s => s - 1)} className="p-1 -ml-1 text-slate-900 transition-colors active:scale-95 shrink-0" title="뒤로 가기">
+                            <button onClick={() => setStep(s => s - 1)} className="p-1 -ml-1 text-slate-800 transition-colors active:scale-95 shrink-0" title="뒤로 가기">
                                 <Icon name="ChevronLeft" size={28} />
                             </button>
                         ) : <div className="w-8 shrink-0"></div>}
@@ -119,17 +117,17 @@
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
                         {canGoForward && (
-                            <button onClick={() => setStep(s => s + 1)} className="p-1 text-slate-900 transition-colors active:scale-95" title="앞으로 가기">
+                            <button onClick={() => setStep(s => s + 1)} className="p-1 text-slate-800 transition-colors active:scale-95" title="앞으로 가기">
                                 <Icon name="ChevronRight" size={28} />
                             </button>
                         )}
-                        <button onClick={copyAccumulatedContent} className="p-1 text-slate-900 transition-colors active:scale-95" title="리포트 복사">
+                        <button onClick={copyAccumulatedContent} className="p-1 text-slate-800 transition-colors active:scale-95" title="리포트 복사">
                             <Icon name="Copy" size={24} />
                         </button>
-                        <button onClick={resetAll} className="p-1 text-slate-900 transition-colors active:scale-95" title="데이터 입력 화면으로">
+                        <button onClick={resetAll} className="p-1 text-slate-800 transition-colors active:scale-95" title="데이터 입력 화면으로">
                             <Icon name="Home" size={24} />
                         </button>
-                        <button onClick={exportProject} className="p-1 -mr-1 text-slate-900 transition-colors active:scale-95" title="프로젝트 수동 저장">
+                        <button onClick={exportProject} className="p-1 -mr-1 text-slate-800 transition-colors active:scale-95" title="프로젝트 수동 저장">
                             <Icon name="Download" size={24} />
                         </button>
                     </div>
@@ -727,8 +725,8 @@
                             <div className="pt-8 px-5 pb-80 animate-fade-in">
                                 <StepTitle title="최종 제안하는 디자인 컨셉을 확인하세요" desc="도출된 최종 가설과 해결 방안을 확인해 주세요." />
                                 <div className="grid gap-6">
-                                    {deepHypotheses.map((h, hIdx) => (
-                                        <div key={hIdx} className="p-8 rounded-[2.5rem] transition-all duration-300 card-shadow bg-white border border-slate-100/60 hover:border-slate-300">
+                                    {deepHypotheses.map(h => (
+                                        <div key={h.id} className="p-8 rounded-[2.5rem] transition-all duration-300 card-shadow bg-white border border-slate-100/60 hover:border-slate-300">
                                             <div className="flex flex-col mb-6 border-b border-slate-100 pb-5">
                                                 <h3 className="text-[22px] font-black text-slate-900 leading-snug">{h.title}</h3>
                                             </div>
@@ -746,15 +744,10 @@
                                 </div>
                                 <div className="mt-8"><AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} /></div>
                                 <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel border-t border-slate-200/50 max-w-[430px] mx-auto z-40 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
+                                    {/* 관점 변경 버튼 섹션 */}
                                     <div className="grid grid-cols-2 gap-2 mb-5">
                                         {['사용 불편 관점', '기술 진화 관점', '심미적 관점', '비지니스 관점'].map(p => (
-                                            <button
-                                                key={p}
-                                                onClick={() => changePerspectiveInStep6(p)}
-                                                className={`py-3 rounded-xl font-bold border transition-all text-[14px] active:scale-95 ${perspective === p ? 'bg-orange-50 border-orange-400 text-orange-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}
-                                            >
-                                                {p}
-                                            </button>
+                                            <button key={p} onClick={() => changePerspectiveInStep6(p)} className={`py-3 rounded-xl font-bold border transition-all text-[14px] active:scale-95 ${perspective === p ? 'bg-indigo-50 border-indigo-400 text-indigo-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>{p}</button>
                                         ))}
                                     </div>
                                     <button onClick={copyAccumulatedContent} className="w-full py-5 bg-blue-600 hover:bg-blue-500 text-white rounded-[1.2rem] font-black text-[17px] shadow-xl shadow-blue-600/30 active:scale-95 transition-all">전체 리포트 복사하기</button>
@@ -763,6 +756,7 @@
                         )}
                     </main>
 
+                    {/* Step Result Modal (원문 보기) */}
                     {opinionModal.visible && (
                         <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-slate-900/60 p-5 backdrop-blur-sm animate-fade-in">
                             <div className="bg-white text-slate-800 p-8 rounded-[2.5rem] w-full max-w-[390px] shadow-2xl relative border border-slate-100 overflow-hidden flex flex-col max-h-[85vh]">
