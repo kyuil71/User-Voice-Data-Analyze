@@ -68,7 +68,7 @@
 
             ANALYSIS: (perspective, input, note) => `You are a Senior Root Cause Analyst. Strictly lens: [${perspective}]. \n${note ? `[Revision Request]: ${note}` : ""}\nDerivate 3 to 6 distinct 5Why chains. Format: Why [N]\\n왜 [질문]?\\n→ [답변]\\n핵심: [대학생이 쉽게 이해할 수 있는 명확한 요약].\n[중요]: 오직 JSON 형식으로만 즉시 출력하십시오.\nReturn ONLY a JSON: { "rootCauses": [ { "id": 1, "chain": ["Why 1\\\\n왜...\\\\n→...\\\\n핵심:...","Why 2...","Why 3...","Why 4...","Why 5..."], "realCause": "..." } ] }`,
             
-            HYPOTHESIS: (perspective, input, cause, note) => `# Role: 전문 UX 전략 컨설턴트. # Context: 도출된 '5Why 진짜 원인'과 선택된 [${perspective}]을 바탕으로 확장 가설 제시. \n${note ? `[수정 요청 반영]: ${note}` : ""}\n[중요1]: 반드시 [${perspective}]에 철저히 입각하여, 이 관점만의 독특하고 차별화된 전략적 해결책을 도출해야 합니다.\n[중요2]: 반드시 정확히 2개의 제안(가설)만 생성하십시오.\n[중요3]: Step 1(VOC 기반 이슈), Step 2(디자인 솔루션 제안), Step 3(사용자 가치 및 기대 효과) 각각의 내용은 반드시 3~4줄 분량으로, 대학생이 쉽게 이해할 수 있는 평이하고 명확한 수준으로 매우 깊이 있고 풍부한 인사이트가 담기도록 상세하게 작성하십시오.\n[중요4]: 특히 'Step 1. VOC 기반 이슈'의 내용은 반드시 사용자 인터뷰를 통해 발견한 실제 Voice(목소리)를 직접 인용하거나 구체적으로 언급하며, 생생하고 실질적인 현장 내용이 들어가는 것처럼 실감나게 작성해야 합니다.\n[중요5]: 응답 속도 최적화를 위해 오직 JSON 형식으로만 즉시 출력하십시오.\nReturn ONLY a JSON: { "hypotheses": [ { "id": 1, "title": "...", "step1": "...", "step2": "...", "step3": "..." }, { "id": 2, "title": "...", "step1": "...", "step2": "...", "step3": "..." } ] }`
+            HYPOTHESIS: (perspective, input, cause, note) => `# Role: 전문 UX 전략 컨설턴트. # Context: 도출된 '5Why 진짜 원인'과 선택된 [${perspective}]을 바탕으로 확장 가설 제시. \n${note ? `[수정 요청 반영]: ${note}` : ""}\n[중요1]: 반드시 [${perspective}]에 철저히 입각하여, 이 관점만의 독특하고 차별화된 전략적 해결책을 도출해야 합니다.\n[중요2]: 반드시 정확히 2개의 제안(가설)만 생성하십시오.\n[중요3]: Step 1(VOC 기반 이슈), Step 2(디자인 솔루션 제안), Step 3(사용자 가치 및 기대 효과) 각각의 내용은 반드시 3~4줄 분량으로, 대학생이 쉽게 이해할 수 있는 평이하고 명확한 수준으로 매우 깊이 있고 풍부한 인사이트가 담기도록 상세하게 작성하십시오.\n[중요4]: 특히 'Step 1. VOC 기반 이슈'의 내용은 반드시 사용자 인터뷰를 통해 발견한 실제 Voice(목소리)를 직접 인용하거나 구체적으로 언급하며, 생생하고 실질적인 현장 내용이 들어가는 것처럼 실감나게 작성해야 합니다.\n[중요5]: 'Step 4. 전략적 해결 방안'은 실행(action) 중심의 실용적이고 현실 가능한 전략이어야 하며, 글머리 기호(- 등)와 줄바꿈(\\n)을 활용한 마크다운 형식으로 4~5줄 분량으로 명확하고 보기 좋게 정리해 주십시오.\n[중요6]: 응답 속도 최적화를 위해 오직 JSON 형식으로만 즉시 출력하십시오.\nReturn ONLY a JSON: { "hypotheses": [ { "id": 1, "title": "...", "step1": "...", "step2": "...", "step3": "...", "step4": "..." }, { "id": 2, "title": "...", "step1": "...", "step2": "...", "step3": "...", "step4": "..." } ] }`
         };
 
         const AIQuestionBox = ({ qaInput, setQaInput, askAI }) => (
@@ -107,13 +107,14 @@
 
             return (
                 <header className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md px-5 h-16 flex items-center justify-between max-w-[430px] mx-auto border-b border-slate-100">
-                    <div className="flex items-center gap-3 flex-1 overflow-hidden">
+                    <div className="flex items-center gap-2 flex-1 overflow-hidden">
                         {canGoBack ? (
                             <button onClick={() => setStep(s => s - 1)} className="p-1 -ml-1 text-slate-800 transition-colors active:scale-95 shrink-0" title="뒤로 가기">
                                 <Icon name="ChevronLeft" size={28} />
                             </button>
                         ) : <div className="w-8 shrink-0"></div>}
-                        <h1 className="font-black text-[22px] text-slate-900 tracking-tight truncate pb-0.5">{getDynamicTitle()}</h1>
+                        {/* 헤더 폰트 크기 기존 대비 80% 수준(18px)으로 축소 */}
+                        <h1 className="font-bold text-[18px] text-slate-900 tracking-tight truncate pb-0.5">{getDynamicTitle()}</h1>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
                         {canGoForward && (
@@ -530,6 +531,9 @@
                         text += `Step 1. VOC 기반 이슈: ${hypo.step1}\n\n`;
                         text += `Step 2. 디자인 솔루션 제안: ${hypo.step2}\n\n`;
                         text += `Step 3. 사용자 가치 및 기대 효과: ${hypo.step3}\n\n`;
+                        if (hypo.step4) {
+                            text += `[전략적 해결 방안]\n${hypo.step4}\n\n`;
+                        }
                     });
                 }
 
@@ -711,7 +715,7 @@
                                 </div>
                                 <div className="mt-8"><AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} /></div>
                                 <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel max-w-[430px] mx-auto z-40 border-t shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
-                                    <div className="grid grid-cols-2 gap-2 mb-5">
+                                    <div className="grid grid-cols-2 gap-2 mb-8">
                                         {['사용 불편 관점', '기술 진화 관점', '심미적 관점', '비지니스 관점'].map(p => (
                                             <button key={p} onClick={() => changePerspective(p)} className={`py-3 rounded-xl text-[14px] font-bold border transition-all active:scale-95 ${perspective === p ? 'bg-orange-50 border-orange-400 text-orange-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>{p}</button>
                                         ))}
@@ -738,14 +742,19 @@
                                                         <p className="text-[17px] text-slate-600 font-light text-justify leading-relaxed whitespace-pre-line pl-4">{item.c}</p>
                                                     </div>
                                                 ))}
+                                                {h.step4 && (
+                                                    <div className="bg-slate-900 p-8 rounded-[2rem] shadow-xl mt-8 relative overflow-hidden">
+                                                        <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-4 py-1.5 rounded-full font-black uppercase mb-5 inline-block text-[13px]">전략적 해결 방안</span>
+                                                        <p className="text-[17px] font-light leading-[1.8] text-slate-200 text-justify whitespace-pre-line relative z-10">{h.step4}</p>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     ))}
                                 </div>
                                 <div className="mt-8"><AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} /></div>
                                 <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel border-t border-slate-200/50 max-w-[430px] mx-auto z-40 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
-                                    {/* 관점 변경 버튼 섹션 */}
-                                    <div className="grid grid-cols-2 gap-2 mb-5">
+                                    <div className="grid grid-cols-2 gap-2 mb-8">
                                         {['사용 불편 관점', '기술 진화 관점', '심미적 관점', '비지니스 관점'].map(p => (
                                             <button key={p} onClick={() => changePerspectiveInStep6(p)} className={`py-3 rounded-xl font-bold border transition-all text-[14px] active:scale-95 ${perspective === p ? 'bg-indigo-50 border-indigo-400 text-indigo-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>{p}</button>
                                         ))}
