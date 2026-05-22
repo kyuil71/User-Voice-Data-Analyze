@@ -113,7 +113,6 @@
                                 <Icon name="ChevronLeft" size={28} />
                             </button>
                         ) : <div className="w-8 shrink-0"></div>}
-                        {/* 헤더 폰트 크기 기존 대비 80% 수준(18px)으로 축소 */}
                         <h1 className="font-bold text-[18px] text-slate-900 tracking-tight truncate pb-0.5">{getDynamicTitle()}</h1>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
@@ -629,7 +628,7 @@
 
                         {step === 2 && step1Result && (
                             <div className="pt-8 px-5 pb-32 animate-fade-in">
-                                <StepTitle title="전체 Affinity 분석" desc="데이터에서 도출된 핵심 카테고리를 확인해 주세요." />
+                                <StepTitle title="전체 데이터 기반 핵심 카테고리 분석" desc="데이터에서 도출된 핵심 카테고리들을 확인하고 전반적인 동향을 파악해 주세요." />
                                 <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white mb-8 shadow-2xl relative overflow-hidden">
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/20 rounded-full blur-3xl"></div>
                                     <span className="bg-blue-600/20 text-blue-300 border border-blue-500/30 px-4 py-1.5 rounded-full font-black uppercase mb-5 inline-block text-[13px]">EXECUTIVE SUMMARY</span>
@@ -653,7 +652,7 @@
 
                         {step === 3 && step2Result && (
                             <div className="pt-8 px-5 pb-48 animate-fade-in">
-                                <StepTitle title="UX/Design Affinity 분석" desc="UX/디자인 관점의 핵심 이슈를 확인하고 대상을 선택해 주세요." />
+                                <StepTitle title="UX/디자인 관점 핵심 이슈 도출" desc="UX/디자인 관점의 핵심 이슈를 확인하고, 심층 분석할 대상을 하나 선택해 주세요." />
                                 <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white mb-8 shadow-2xl text-justify relative overflow-hidden">
                                     <div className="absolute top-0 left-0 w-32 h-32 bg-indigo-500/20 rounded-full blur-3xl"></div>
                                     <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-4 py-1.5 rounded-full font-black uppercase mb-5 inline-block text-[13px]">UX/DESIGN SUMMARY</span>
@@ -683,7 +682,7 @@
 
                         {step === 4 && (
                             <div className="pt-8 px-6 pb-48 animate-fade-in">
-                                <StepTitle title="원인 분석 대상 설정" desc="5Whys 기법으로 깊이 파고들 이슈를 확인해 주세요." />
+                                <StepTitle title="심층 원인 분석을 위한 대상 이슈 설정" desc="5Whys 기법으로 원인을 분석할 대상을 확인하고, 필요시 내용을 직접 수정하여 분석 방향을 설정해 주세요." />
                                 <div className="bg-white p-6 rounded-[2rem] card-shadow border border-orange-100 mb-8"><textarea value={deepDiveInput} onChange={(e) => setDeepDiveInput(e.target.value)} className="w-full h-64 outline-none text-[17px] text-slate-700 font-light resize-none leading-relaxed"></textarea></div>
                                 <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel border-t max-w-[430px] mx-auto z-40"><button onClick={() => start5WhysAnalysis()} className="w-full py-5 bg-slate-900 text-white rounded-[1.2rem] font-black shadow-xl active:scale-95 transition-all">5Whys 원인 분석 실행</button></div>
                             </div>
@@ -691,7 +690,7 @@
 
                         {step === 5 && rootCauses.length > 0 && (
                             <div className="pt-8 px-5 pb-64 animate-fade-in">
-                                <StepTitle title="5Whys 분석 결과" desc="가장 근본적인 진짜 원인(Real Cause)을 선택해 주세요." />
+                                <StepTitle title="5Whys 기법 기반 근본 원인 파악" desc="분석된 여러 원인 사슬 중, 가장 근본적인 진짜 원인(Real Cause)을 하나 선택해 주세요." />
                                 <div className="space-y-6">
                                     {rootCauses.map((rc) => (
                                         <div key={rc.id} className={`p-7 rounded-[2rem] transition-all duration-300 card-shadow bg-white ${selectedCauseId === rc.id ? 'border-[3px] border-orange-500 ring-4 ring-orange-500/10' : 'border border-slate-100/60 hover:border-slate-300'}`}>
@@ -715,7 +714,7 @@
                                 </div>
                                 <div className="mt-8"><AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} /></div>
                                 <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel max-w-[430px] mx-auto z-40 border-t shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
-                                    <div className="grid grid-cols-2 gap-2 mb-8">
+                                    <div className="grid grid-cols-2 gap-2 mb-16">
                                         {['사용 불편 관점', '기술 진화 관점', '심미적 관점', '비지니스 관점'].map(p => (
                                             <button key={p} onClick={() => changePerspective(p)} className={`py-3 rounded-xl text-[14px] font-bold border transition-all active:scale-95 ${perspective === p ? 'bg-orange-50 border-orange-400 text-orange-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>{p}</button>
                                         ))}
@@ -727,10 +726,10 @@
 
                         {step === 6 && deepHypotheses.length > 0 && (
                             <div className="pt-8 px-5 pb-80 animate-fade-in">
-                                <StepTitle title="원인 기반의 디자인 컨셉 제안" desc="최종 제안하는 디자인 컨셉을 확인하세요" />
+                                <StepTitle title="원인 기반 솔루션 제안" desc="최종 제안하는 디자인 컨셉을 확인하세요" />
                                 <div className="grid gap-6">
-                                    {deepHypotheses.map(h => (
-                                        <div key={h.id} className="p-8 rounded-[2.5rem] transition-all duration-300 card-shadow bg-white border border-slate-100/60 hover:border-slate-300">
+                                    {deepHypotheses.map((h, hIdx) => (
+                                        <div key={hIdx} className="p-8 rounded-[2.5rem] transition-all duration-300 card-shadow bg-white border border-slate-100/60 hover:border-slate-300">
                                             <div className="flex flex-col mb-6 border-b border-slate-100 pb-5">
                                                 <h3 className="text-[22px] font-black text-slate-900 leading-snug">{h.title}</h3>
                                             </div>
@@ -754,9 +753,15 @@
                                 </div>
                                 <div className="mt-8"><AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} /></div>
                                 <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel border-t border-slate-200/50 max-w-[430px] mx-auto z-40 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
-                                    <div className="grid grid-cols-2 gap-2 mb-8">
+                                    <div className="grid grid-cols-2 gap-2 mb-16">
                                         {['사용 불편 관점', '기술 진화 관점', '심미적 관점', '비지니스 관점'].map(p => (
-                                            <button key={p} onClick={() => changePerspectiveInStep6(p)} className={`py-3 rounded-xl font-bold border transition-all text-[14px] active:scale-95 ${perspective === p ? 'bg-indigo-50 border-indigo-400 text-indigo-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>{p}</button>
+                                            <button
+                                                key={p}
+                                                onClick={() => changePerspectiveInStep6(p)}
+                                                className={`py-3 rounded-xl font-bold border transition-all text-[14px] active:scale-95 ${perspective === p ? 'bg-orange-50 border-orange-400 text-orange-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+                                            >
+                                                {p}
+                                            </button>
                                         ))}
                                     </div>
                                     <button onClick={copyAccumulatedContent} className="w-full py-5 bg-blue-600 hover:bg-blue-500 text-white rounded-[1.2rem] font-black text-[17px] shadow-xl shadow-blue-600/30 active:scale-95 transition-all">전체 리포트 복사하기</button>
