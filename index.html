@@ -89,9 +89,8 @@
             const canGoForward = 
                 (step === 1 && step1Result) || 
                 (step === 2 && step2Result) || 
-                (step === 3 && selectedCategory) || 
-                (step === 4 && rootCauses?.length > 0) ||
-                (step === 5 && deepHypotheses?.length > 0);
+                (step === 3 && rootCauses?.length > 0) || 
+                (step === 4 && deepHypotheses?.length > 0);
 
             const canGoBack = step > 1;
             
@@ -99,9 +98,8 @@
                 if (step === 1) return "데이터 입력";
                 if (step === 2) return "전체 Affinity 분석";
                 if (step === 3) return "UX/Design Affinity 분석";
-                if (step === 4) return "분석 대상 설정";
-                if (step === 5) return "원인 분석";
-                if (step === 6) return "컨셉 도출";
+                if (step === 4) return "원인 분석";
+                if (step === 5) return "컨셉 도출";
                 return "";
             };
 
@@ -225,7 +223,16 @@
                             setRootCauses(s.rootCauses || []);
                             setSelectedCauseId(s.selectedCauseId || null);
                             setDeepHypotheses(s.deepHypotheses || []);
-                            setStep(s.step > 0 ? Math.min(s.step, 6) : 1);
+
+                            let targetStep = s.step;
+                            if (targetStep >= 4 && (!s.rootCauses || s.rootCauses.length === 0)) {
+                                targetStep = 3;
+                            } else if (targetStep >= 5 && (!s.deepHypotheses || s.deepHypotheses.length === 0)) {
+                                targetStep = 4;
+                            } else if (targetStep >= 6) {
+                                targetStep = 5;
+                            }
+                            setStep(targetStep > 0 ? targetStep : 1);
                         } else {
                             await clearDB("autosave_project");
                         }
@@ -285,7 +292,16 @@
                             setRootCauses(s.rootCauses || []);
                             setSelectedCauseId(s.selectedCauseId || null);
                             setDeepHypotheses(s.deepHypotheses || []);
-                            setStep(s.step > 0 ? Math.min(s.step, 6) : 1);
+
+                            let targetStep = s.step;
+                            if (targetStep >= 4 && (!s.rootCauses || s.rootCauses.length === 0)) {
+                                targetStep = 3;
+                            } else if (targetStep >= 5 && (!s.deepHypotheses || s.deepHypotheses.length === 0)) {
+                                targetStep = 4;
+                            } else if (targetStep >= 6) {
+                                targetStep = 5;
+                            }
+                            setStep(targetStep > 0 ? targetStep : 1);
                             alert("기존 프로젝트를 성공적으로 불러왔습니다. 이제 5초 간격으로 브라우저에 자동 임시 저장됩니다.");
                         }
                     } catch (err) {
@@ -392,7 +408,16 @@
                                 setRootCauses(s.rootCauses || []);
                                 setSelectedCauseId(s.selectedCauseId || null);
                                 setDeepHypotheses(s.deepHypotheses || []);
-                                setStep(s.step > 0 ? Math.min(s.step, 6) : 1);
+
+                                let targetStep = s.step;
+                                if (targetStep >= 4 && (!s.rootCauses || s.rootCauses.length === 0)) {
+                                    targetStep = 3;
+                                } else if (targetStep >= 5 && (!s.deepHypotheses || s.deepHypotheses.length === 0)) {
+                                    targetStep = 4;
+                                } else if (targetStep >= 6) {
+                                    targetStep = 5;
+                                }
+                                setStep(targetStep > 0 ? targetStep : 1);
                             } else {
                                 await clearDB("autosave_project");
                                 setStep(1);
@@ -412,8 +437,8 @@
                 try {
                     if (step === 2) await handleStep1Analysis(note);
                     else if (step === 3) await handleStep2Analysis(note);
-                    else if (step === 5) await start5WhysAnalysis(note);
-                    else if (step === 6) await exploreDeepHypotheses(selectedCauseId, note);
+                    else if (step === 4) await start5WhysAnalysis(note);
+                    else if (step === 5) await exploreDeepHypotheses(selectedCauseId, note);
                     setQaInput("");
                 } catch { setError("오류 발생"); }
             };
@@ -462,7 +487,7 @@
                 setLoadingMsg("5Whys 분석 중...");
                 try {
                     const res = await callGemini(`Input: ${deepDiveInput}`, true, PROMPTS.ANALYSIS(perspective, deepDiveInput, note));
-                    if (res && res.rootCauses) { setRootCauses(res.rootCauses); setSelectedCauseId(null); setStep(5); }
+                    if (res && res.rootCauses) { setRootCauses(res.rootCauses); setSelectedCauseId(null); setStep(4); }
                 } catch { setError("분석 실패"); }
             };
 
@@ -490,7 +515,7 @@
                 const selected = rootCauses.find(c => c.id === id);
                 setLoadingMsg("인사이트 도출 중...");
                 callGemini(`Cause: ${selected.realCause}`, true, PROMPTS.HYPOTHESIS(perspective, deepDiveInput, selected.realCause, note))
-                    .then(res => { if(res && res.hypotheses) { setDeepHypotheses(res.hypotheses); setStep(6); } });
+                    .then(res => { if(res && res.hypotheses) { setDeepHypotheses(res.hypotheses); setStep(5); } });
             };
 
             const fallbackCopyTextToClipboard = (text, successMsg) => {
@@ -519,11 +544,11 @@
                 if (step >= 4 && deepDiveInput) {
                     text += "--- 3단계: 분석 대상 가설 ---\n" + deepDiveInput + "\n\n";
                 }
-                if (step >= 5 && selectedCauseId) {
+                if (step >= 4 && selectedCauseId) {
                     const cause = rootCauses.find(c => c.id === selectedCauseId);
                     if(cause) text += "--- 4단계: 5Whys 분석 결과 ---\n" + cause.chain.join('\n') + `\nReal Cause: ${cause.realCause}\n\n`;
                 }
-                if (step >= 6 && deepHypotheses.length > 0) {
+                if (step >= 5 && deepHypotheses.length > 0) {
                     text += `--- 5단계: 디자인 인사이트 제안 ---\n`;
                     deepHypotheses.forEach((hypo, index) => {
                         text += `\n[가설 ${index + 1}: ${hypo.title}]\n`;
@@ -675,20 +700,12 @@
                                 <div className="mt-8"><AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} /></div>
                                 <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel border-t max-w-[430px] mx-auto z-[60] shadow-2xl">
                                     <div className="mb-4 text-center text-slate-600 text-[15px] font-bold">{selectedCategory ? `"${selectedCategory.name}" 선택됨` : "항목을 선택하세요"}</div>
-                                    <button disabled={!selectedCategory} onClick={() => setStep(4)} className="w-full py-5 bg-orange-500 text-white rounded-[1.2rem] font-black text-lg active:scale-95 transition-all shadow-xl shadow-orange-500/30 disabled:bg-slate-200 disabled:shadow-none">5Whys 분석 시작</button>
+                                    <button disabled={!selectedCategory} onClick={() => start5WhysAnalysis()} className="w-full py-5 bg-orange-500 text-white rounded-[1.2rem] font-black text-lg active:scale-95 transition-all shadow-xl shadow-orange-500/30 disabled:bg-slate-200 disabled:shadow-none">5Whys 분석 시작</button>
                                 </div>
                             </div>
                         )}
 
-                        {step === 4 && (
-                            <div className="pt-8 px-6 pb-48 animate-fade-in">
-                                <StepTitle title={"심층 원인 분석을 위한\n대상 이슈 설정"} desc="5Whys 기법으로 원인을 분석할 대상을 확인하고, 필요시 내용을 직접 수정하여 분석 방향을 설정해 주세요." />
-                                <div className="bg-white p-6 rounded-[2rem] card-shadow border border-orange-100 mb-8"><textarea value={deepDiveInput} onChange={(e) => setDeepDiveInput(e.target.value)} className="w-full h-64 outline-none text-[17px] text-slate-700 font-light resize-none leading-relaxed"></textarea></div>
-                                <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel border-t max-w-[430px] mx-auto z-40"><button onClick={() => start5WhysAnalysis()} className="w-full py-5 bg-slate-900 text-white rounded-[1.2rem] font-black shadow-xl active:scale-95 transition-all">5Whys 원인 분석 실행</button></div>
-                            </div>
-                        )}
-
-                        {step === 5 && rootCauses.length > 0 && (
+                        {step === 4 && rootCauses.length > 0 && (
                             <div className="pt-8 px-5 pb-64 animate-fade-in">
                                 <StepTitle title={"5Whys 기법 기반의\n근본 원인 파악"} desc="분석된 여러 원인 사슬 중, 가장 근본적인 진짜 원인(Real Cause)을 하나 선택해 주세요." />
                                 <div className="space-y-6">
@@ -724,7 +741,7 @@
                             </div>
                         )}
 
-                        {step === 6 && deepHypotheses.length > 0 && (
+                        {step === 5 && deepHypotheses.length > 0 && (
                             <div className="pt-8 px-5 pb-80 animate-fade-in">
                                 <StepTitle title={"원인 분석 기반의\n솔루션(컨셉 방향) 제안"} desc="최종 제안하는 디자인 컨셉을 확인하세요" />
                                 <div className="grid gap-6">
