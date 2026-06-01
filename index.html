@@ -89,8 +89,9 @@
             const canGoForward = 
                 (step === 1 && step1Result) || 
                 (step === 2 && step2Result) || 
-                (step === 3 && rootCauses?.length > 0) || 
-                (step === 4 && deepHypotheses?.length > 0);
+                (step === 3 && selectedCategory) || 
+                (step === 4 && rootCauses?.length > 0) ||
+                (step === 5 && deepHypotheses?.length > 0);
 
             const canGoBack = step > 1;
             
@@ -450,13 +451,14 @@
                     const lines = rawData.split('\n');
                     const planRes = await callGemini(PROMPTS.STEP1_PLAN(rawData, note), true, null, false);
                     if (!planRes || !planRes.categoryNames) throw new Error("분석 플랜 생성 실패");
-                    const detailPromises = planRes.categoryNames.map(async (catName) => {
+                    
+                    const categories = [];
+                    for (const catName of planRes.categoryNames) {
                         const detailRes = await callGemini(PROMPTS.STEP1_DETAIL(rawData, catName), true, null, false);
                         const opinionString = (detailRes.opinions || "").toString();
                         const opinionArray = opinionString.split(',').map(id => lines[parseInt(id.trim(), 10)]).filter(Boolean);
-                        return { name: catName, summary: detailRes.summary, count: detailRes.count, opinions: opinionArray };
-                    });
-                    const categories = await Promise.all(detailPromises);
+                        categories.push({ name: catName, summary: detailRes.summary, count: detailRes.count, opinions: opinionArray });
+                    }
                     setStep1Result({ summary: planRes.summary, categories }); 
                     setStep(2);
                 } catch { setError("분석 실패. 데이터 형식을 확인해 주세요."); }
@@ -470,13 +472,14 @@
                     const lines = rawData.split('\n');
                     const planRes = await callGemini(PROMPTS.STEP2_PLAN(rawData, note), true, null, false);
                     if (!planRes || !planRes.categoryNames) throw new Error("분석 플랜 생성 실패");
-                    const detailPromises = planRes.categoryNames.map(async (catName) => {
+                    
+                    const uxCategories = [];
+                    for (const catName of planRes.categoryNames) {
                         const detailRes = await callGemini(PROMPTS.STEP2_DETAIL(rawData, catName), true, null, false);
                         const opinionString = (detailRes.opinions || "").toString();
                         const opinionArray = opinionString.split(',').map(id => lines[parseInt(id.trim(), 10)]).filter(Boolean);
-                        return { name: catName, summary: detailRes.summary, count: detailRes.count, opinions: opinionArray };
-                    });
-                    const uxCategories = await Promise.all(detailPromises);
+                        uxCategories.push({ name: catName, summary: detailRes.summary, count: detailRes.count, opinions: opinionArray });
+                    }
                     setStep2Result({ summary: planRes.summary, uxCategories }); 
                     setStep(3);
                 } catch { setError("분석 실패. 데이터 형식을 확인해 주세요."); }
