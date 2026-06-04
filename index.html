@@ -120,7 +120,7 @@
                         <button onClick={copyAccumulatedContent} className="p-1 text-slate-700 transition-colors active:scale-95" title="리포트 복사">
                             <Icon name="Copy" size={20} />
                         </button>
-                        <button onClick={resetAll} className="p-1 text-slate-700 transition-colors active:scale-95" title="데이터 입력 화면으로">
+                        <button onClick={() => setStep(1)} className="p-1 text-slate-700 transition-colors active:scale-95" title="데이터 입력 화면으로">
                             <Icon name="Home" size={20} />
                         </button>
                         <button onClick={exportProject} className="p-1 -mr-1 text-slate-700 transition-colors active:scale-95" title="프로젝트 수동 저장">
