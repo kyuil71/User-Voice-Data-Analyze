@@ -50,25 +50,23 @@
         const PROMPTS = {
             STEP1_PLAN: (data, note) => {
                 const numberedData = data.split('\n').map((line, i) => `[ID:${i}] ${line}`).join('\n');
-                return `Data: "${numberedData}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n데이터를 분석하여 전체 요약(EXECUTIVE SUMMARY)과 5~7개의 핵심 카테고리 이름을 도출하십시오. 분석 요약(summary)은 대학생이 쉽게 이해할 수 있는 평이하고 명확한 어휘를 사용하여 한국어로 작성하십시오. 답변 내에 ** 강조 표시를 절대로 포함하지 마십시오.\n[중요1]: "summary"의 내용은 반드시 4줄에서 5줄 분량으로만 작성하십시오.\n[중요2]: 불필요한 설명 없이 즉시 JSON만 출력하십시오.\nProvide JSON: {"summary": "EXECUTIVE SUMMARY", "categoryNames": ["카테고리1", "카테고리2"]}`;
+                return `Data: "${numberedData}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n데이터를 분석하여 전체 요약(EXECUTIVE SUMMARY)과 5~7개의 핵심 카테고리 이름, 그리고 각 카테고리에 포함될 원문의 고유 번호(ID)를 도출하십시오. 분석 요약(summary)은 대학생이 쉽게 이해할 수 있는 평이하고 명확한 어휘를 사용하여 한국어로 작성하십시오. 답변 내에 ** 강조 표시를 절대로 포함하지 마십시오.\n[중요1]: "summary"의 내용은 반드시 4줄에서 5줄 분량으로만 작성하십시오.\n[중요2]: 불필요한 설명 없이 즉시 JSON만 출력하십시오.\nProvide JSON: {"summary": "EXECUTIVE SUMMARY", "categories": [{"name": "카테고리1", "opinions": "0,3,15"}, {"name": "카테고리2", "opinions": "1,2,5"}]}`;
             },
-            STEP1_DETAIL: (data, categoryName) => {
-                const numberedData = data.split('\n').map((line, i) => `[ID:${i}] ${line}`).join('\n');
-                return `Data: "${numberedData}"\nCategory: "${categoryName}"\n해당 카테고리에 대한 분석 요약과 포함되는 원문의 고유 번호(ID)를 매핑하십시오. 요약은 대학생이 쉽게 이해할 수 있는 평이하고 명확한 수준으로 한국어로 작성하며 ** 강조 표시는 절대 금지합니다.\n[중요1]: "summary" 분석 내용은 반드시 4줄에서 5줄 분량으로만 작성하십시오.\n[중요2]: "opinions" 값은 배열이 아닌 쉼표로 구분된 문자열(예: "0,3,15,202") 형식으로 100% 모두 포함하십시오. 절대로 누락시키지 마십시오.\n[중요3]: "count" 값은 추출된 원문 ID의 총 개수와 정확히 일치해야 합니다.\nProvide JSON: {"summary": "분석 내용", "count": 0, "opinions": "0,3,15"}`;
+            STEP1_DETAIL: (filteredData, categoryName) => {
+                return `Data: "${filteredData}"\nCategory: "${categoryName}"\n제공된 Data는 해당 카테고리에 속하는 실제 사용자 의견들입니다. 이 데이터들을 바탕으로 해당 카테고리에 대한 심층 분석 요약을 작성하십시오. 요약은 대학생이 쉽게 이해할 수 있는 평이하고 명확한 수준으로 한국어로 작성하며 ** 강조 표시는 절대 금지합니다.\n[중요1]: "summary" 분석 내용은 반드시 4줄에서 5줄 분량으로만 작성하십시오.\n[중요2]: 불필요한 설명 없이 즉시 JSON만 출력하십시오.\nProvide JSON: {"summary": "분석 내용"}`;
             },
             
             STEP2_PLAN: (data, note) => {
                 const numberedData = data.split('\n').map((line, i) => `[ID:${i}] ${line}`).join('\n');
-                return `Data: "${numberedData}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n디자인 및 UX 측면에서 정교하게 세분화된 카테고라이징을 수행하여, 전체 요약(UX/DESIGN SUMMARY)과 이슈 이름들을 도출하십시오. 분석 요약은 대학생이 쉽게 이해할 수 있는 평이하고 명확한 어휘를 사용하여 한국어로 작성하며 ** 강조 표시는 금지합니다.\n[중요1]: "summary"의 내용은 반드시 4줄에서 5줄 분량으로만 작성하십시오.\n[중요2]: 불필요한 설명 없이 즉시 JSON만 출력하십시오.\nProvide JSON: {"summary": "UX/DESIGN SUMMARY", "categoryNames": ["이슈1", "이슈2"]}`;
+                return `Data: "${numberedData}"\n${note ? `[사용자 수정 요청]: ${note}` : ""}\n디자인 및 UX 측면에서 정교하게 세분화된 카테고라이징을 수행하여, 전체 요약(UX/DESIGN SUMMARY)과 이슈 이름들, 그리고 각 이슈에 포함될 원문의 고유 번호(ID)를 도출하십시오. 분석 요약은 대학생이 쉽게 이해할 수 있는 평이하고 명확한 어휘를 사용하여 한국어로 작성하며 ** 강조 표시는 금지합니다.\n[중요1]: "summary"의 내용은 반드시 4줄에서 5줄 분량으로만 작성하십시오.\n[중요2]: 불필요한 설명 없이 즉시 JSON만 출력하십시오.\nProvide JSON: {"summary": "UX/DESIGN SUMMARY", "categories": [{"name": "이슈1", "opinions": "0,3,15"}, {"name": "이슈2", "opinions": "1,2"}]}`;
             },
-            STEP2_DETAIL: (data, categoryName) => {
-                const numberedData = data.split('\n').map((line, i) => `[ID:${i}] ${line}`).join('\n');
-                return `Data: "${numberedData}"\nCategory: "${categoryName}"\n해당 UX/디자인 이슈에 대한 분석 요약과 원문의 고유 번호(ID)를 매핑하십시오. 요약은 대학생이 쉽게 이해할 수 있는 평이하고 명확한 수준으로 한국어로 작성하며 ** 강조 표시는 절대 금지합니다.\n[중요1]: "summary" 분석 내용은 반드시 4줄에서 5줄 분량으로만 작성하십시오.\n[중요2]: "opinions" 값은 배열이 아닌 쉼표로 구분된 문자열(예: "0,3,15,202") 형식으로 100% 모두 포함하십시오. 절대로 누락시키지 마십시오.\n[중요3]: "count" 값은 추출된 원문 ID의 총 개수와 정확히 일치해야 합니다.\nProvide JSON: {"summary": "분석 내용", "count": 0, "opinions": "0,3,15"}`;
+            STEP2_DETAIL: (filteredData, categoryName) => {
+                return `Data: "${filteredData}"\nCategory: "${categoryName}"\n제공된 Data는 해당 UX/디자인 이슈에 속하는 실제 사용자 의견들입니다. 이 데이터들을 바탕으로 해당 이슈에 대한 심층 분석 요약을 작성하십시오. 요약은 대학생이 쉽게 이해할 수 있는 평이하고 명확한 수준으로 한국어로 작성하며 ** 강조 표시는 절대 금지합니다.\n[중요1]: "summary" 분석 내용은 반드시 4줄에서 5줄 분량으로만 작성하십시오.\n[중요2]: 불필요한 설명 없이 즉시 JSON만 출력하십시오.\nProvide JSON: {"summary": "분석 내용"}`;
             },
 
             ANALYSIS: (perspective, input, note) => `You are a Senior Root Cause Analyst. Strictly lens: [${perspective}]. \n${note ? `[Revision Request]: ${note}` : ""}\nDerivate 3 to 6 distinct 5Why chains. Format: Why [N]\\n왜 [질문]?\\n→ [답변]\\n핵심: [대학생이 쉽게 이해할 수 있는 명확한 요약].\n[중요]: 오직 JSON 형식으로만 즉시 출력하십시오.\nReturn ONLY a JSON: { "rootCauses": [ { "id": 1, "chain": ["Why 1\\\\n왜...\\\\n→...\\\\n핵심:...","Why 2...","Why 3...","Why 4...","Why 5..."], "realCause": "..." } ] }`,
             
-            HYPOTHESIS: (perspective, input, cause, note) => `# Role: 전문 UX 전략 컨설턴트. # Context: 도출된 '5Why 진짜 원인'과 선택된 [${perspective}]을 바탕으로 확장 가설 제시. \n${note ? `[수정 요청 반영]: ${note}` : ""}\n[중요1]: 반드시 [${perspective}]에 철저히 입각하여, 이 관점만의 독특하고 차별화된 전략적 해결책을 도출해야 합니다.\n[중요2]: 반드시 정확히 2개의 제안(가설)만 생성하십시오.\n[중요3]: Step 1(VOC 기반 이슈), Step 2(디자인 솔루션 제안), Step 3(사용자 가치 및 기대 효과) 각각의 내용은 반드시 3~4줄 분량으로, 대학생이 쉽게 이해할 수 있는 평이하고 명확한 수준으로 매우 깊이 있고 풍부한 인사이트가 담기도록 상세하게 작성하십시오.\n[중요4]: 특히 'Step 1. VOC 기반 이슈'의 내용은 반드시 사용자 인터뷰를 통해 발견한 실제 Voice(목소리)를 직접 인용하거나 구체적으로 언급하며, 생생하고 실질적인 현장 내용이 들어가는 것처럼 실감나게 작성해야 합니다.\n[중요5]: 'Step 4. 전략적 해결 방안'은 실행(action) 중심의 실용적이고 현실 가능한 전략이어야 하며, 글머리 기호(- 등)와 줄바꿈(\\n)을 활용한 마크다운 형식으로 4~5줄 분량으로 명확하고 보기 좋게 정리해 주십시오.\n[중요6]: 응답 속도 최적화를 위해 오직 JSON 형식으로만 즉시 출력하십시오.\nReturn ONLY a JSON: { "hypotheses": [ { "id": 1, "title": "...", "step1": "...", "step2": "...", "step3": "...", "step4": "..." }, { "id": 2, "title": "...", "step1": "...", "step2": "...", "step3": "...", "step4": "..." } ] }`
+            HYPOTHESIS: (perspective, input, cause, note) => `# Role: 전문 UX 전략 컨설턴트. # Context: 도출된 '5Why 진짜 원인'과 선택된 [${perspective}]을 바탕으로 확장 가설 제시. \n${note ? `[수정 요청 반영]: ${note}` : ""}\n[중요1]: 반드시 [${perspective}]에 철저히 입각하여, 이 관점만의 독특하고 차별화된 전략적 해결책을 도출해야 합니다.\n[중요2]: 반드시 정확히 2개의 제안(가설)만 생성하십시오.\n[중요3]: Step 1(VOC 기반 이슈), Step 2(디자인 솔루션 제안), Step 3(사용자 가치 및 기대 효과) 각각의 내용은 반드시 3~4줄 분량으로, 대학생이 쉽게 이해할 수 있는 평이하고 명확한 수준으로 매우 깊이 있고 풍부한 인사이트가 담기도록 상세하게 작성하십시오.\n[중요4]: 특히 'Step 1. VOC 기반 이슈'의 내용은 반드시 사용자 인터뷰를 통해 발견한 실제 Voice(목소리)를 직접 인용하거나 구체적으로 언급하며, 생생하고 실질적인 현장 내용이 들어가는 것처럼 실감나게 작성해야 합니다.\n[중요5]: 'Step 4. 전략적 해결 방안'은 실행(action) 중심의 실용적이고 현실 가능한 전략이어야 연습하며, 글머리 기호(- 등)와 줄바꿈(\\n)을 활용한 마크다운 형식으로 4~5줄 분량으로 명확하고 보기 좋게 정리해 주십시오.\n[중요6]: 응답 속도 최적화를 위해 오직 JSON 형식으로만 즉시 출력하십시오.\nReturn ONLY a JSON: { "hypotheses": [ { "id": 1, "title": "...", "step1": "...", "step2": "...", "step3": "...", "step4": "..." }, { "id": 2, "title": "...", "step1": "...", "step2": "...", "step3": "...", "step4": "..." } ] }`
         };
 
         const AIQuestionBox = ({ qaInput, setQaInput, askAI }) => (
@@ -449,14 +447,20 @@
                 try {
                     const lines = rawData.split('\n');
                     const planRes = await callGemini(PROMPTS.STEP1_PLAN(rawData, note), true, null, false);
-                    if (!planRes || !planRes.categoryNames) throw new Error("분석 플랜 생성 실패");
-                    const detailPromises = planRes.categoryNames.map(async (catName) => {
-                        const detailRes = await callGemini(PROMPTS.STEP1_DETAIL(rawData, catName), true, null, false);
-                        const opinionString = (detailRes.opinions || "").toString();
-                        const opinionArray = opinionString.split(',').map(id => lines[parseInt(id.trim(), 10)]).filter(Boolean);
-                        return { name: catName, summary: detailRes.summary, count: detailRes.count, opinions: opinionArray };
-                    });
-                    const categories = await Promise.all(detailPromises);
+                    if (!planRes || !planRes.categories) throw new Error("분석 플랜 생성 실패");
+                    
+                    const categories = [];
+                    for (const cat of planRes.categories) {
+                        const catName = cat.name;
+                        const opinionString = (cat.opinions || "").toString();
+                        const opinionIndices = opinionString.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id));
+                        const opinionArray = opinionIndices.map(id => lines[id]).filter(Boolean);
+                        
+                        const filteredDataForPrompt = opinionArray.join('\n');
+                        const detailRes = await callGemini(PROMPTS.STEP1_DETAIL(filteredDataForPrompt, catName), true, null, false);
+                        
+                        categories.push({ name: catName, summary: detailRes.summary, count: opinionArray.length, opinions: opinionArray });
+                    }
                     setStep1Result({ summary: planRes.summary, categories }); 
                     setStep(2);
                 } catch { setError("분석 실패. 데이터 형식을 확인해 주세요."); }
@@ -469,14 +473,20 @@
                 try {
                     const lines = rawData.split('\n');
                     const planRes = await callGemini(PROMPTS.STEP2_PLAN(rawData, note), true, null, false);
-                    if (!planRes || !planRes.categoryNames) throw new Error("분석 플랜 생성 실패");
-                    const detailPromises = planRes.categoryNames.map(async (catName) => {
-                        const detailRes = await callGemini(PROMPTS.STEP2_DETAIL(rawData, catName), true, null, false);
-                        const opinionString = (detailRes.opinions || "").toString();
-                        const opinionArray = opinionString.split(',').map(id => lines[parseInt(id.trim(), 10)]).filter(Boolean);
-                        return { name: catName, summary: detailRes.summary, count: detailRes.count, opinions: opinionArray };
-                    });
-                    const uxCategories = await Promise.all(detailPromises);
+                    if (!planRes || !planRes.categories) throw new Error("분석 플랜 생성 실패");
+                    
+                    const uxCategories = [];
+                    for (const cat of planRes.categories) {
+                        const catName = cat.name;
+                        const opinionString = (cat.opinions || "").toString();
+                        const opinionIndices = opinionString.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id));
+                        const opinionArray = opinionIndices.map(id => lines[id]).filter(Boolean);
+                        
+                        const filteredDataForPrompt = opinionArray.join('\n');
+                        const detailRes = await callGemini(PROMPTS.STEP2_DETAIL(filteredDataForPrompt, catName), true, null, false);
+                        
+                        uxCategories.push({ name: catName, summary: detailRes.summary, count: opinionArray.length, opinions: opinionArray });
+                    }
                     setStep2Result({ summary: planRes.summary, uxCategories }); 
                     setStep(3);
                 } catch { setError("분석 실패. 데이터 형식을 확인해 주세요."); }
@@ -584,7 +594,7 @@
                     {isAnalyzing && (
                         <div className="fixed inset-0 z-[10000] bg-white/95 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center max-w-[430px] mx-auto">
                             <div className="w-14 h-14 rounded-full border-4 border-slate-100 border-t-blue-600 animate-spin mb-6"></div>
-                            <h3 className="text-[20px] font-black text-[#0f172a] tracking-tight">AI 분석 중</h3>
+                            <h3 className="text-[20px] font-black text-[#0f172a] tracking-tight">{loadingMsg || "AI 분석 중"}</h3>
                         </div>
                     )}
 
@@ -625,7 +635,7 @@
                                 <div className="relative z-10 space-y-12">
                                     <div className="space-y-6">
                                         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 border border-white/20 font-bold uppercase tracking-widest text-[14px] backdrop-blur-sm">INTEGRATED INTELLIGENCE</div>
-                                        <h1 className="font-black leading-tight tracking-tighter text-42px">데이터 기반으로<br/>사용자 마음을<br/><span className="text-blue-400 text-45px">발견하세요.</span></h1>
+                                        <h1 className="font-black leading-tight tracking-tighter text-[42px]">데이터 기반으로<br/>사용자 마음을<br/><span className="text-blue-400 text-[45px]">발견하세요.</span></h1>
                                         <p className="text-slate-400 leading-relaxed text-[17px] font-light">Raw 데이터 분석에서 5Whys 진짜 원인 파악까지 한번에 진행하는 올인원 도구입니다.</p>
                                     </div>
                                     <div className="space-y-5">
@@ -687,7 +697,7 @@
                                     {step2Result.uxCategories.map((cat, i) => (
                                         <div key={i} className={`p-7 rounded-[2.5rem] transition-all duration-300 card-shadow bg-white ${selectedCategory?.name === cat.name ? 'border-[3px] border-indigo-500 ring-4 ring-indigo-500/10' : 'border border-slate-100/60 hover:border-slate-300'}`}>
                                             <div className="flex justify-between items-start mb-5">
-                                                <h3 className="font-black text-20px flex-1 text-slate-800 leading-tight pr-2">{cat.name}</h3>
+                                                <h3 className="font-black text-[20px] flex-1 text-slate-800 leading-tight pr-2">{cat.name}</h3>
                                                 <div className="flex flex-col items-end gap-2.5 shrink-0 ml-2">
                                                     <button onClick={() => setOpinionModal({ visible: true, title: cat.name, opinions: cat.opinions })} className="bg-slate-50 px-4 py-1.5 rounded-xl border border-slate-100 text-slate-500 font-bold text-[13px] hover:bg-slate-100 transition-colors whitespace-nowrap">{cat.opinions ? cat.opinions.length : 0}건 원문 보기</button>
                                                     <button onClick={() => { setSelectedCategory(cat); setDeepDiveInput(`이슈: ${cat.name}\n내용: ${cat.summary}`); }} className={`px-6 py-2.5 rounded-xl font-black transition-all shadow-md active:scale-95 text-[15px] ${selectedCategory?.name === cat.name ? 'bg-indigo-600 text-white' : 'bg-slate-900 text-white'}`}>이슈 선택</button>
@@ -770,7 +780,6 @@
                                 </div>
                                 <div className="mt-8"><AIQuestionBox qaInput={qaInput} setQaInput={setQaInput} askAI={askAI} /></div>
                                 <div className="fixed bottom-0 left-0 right-0 p-6 glass-panel border-t border-slate-200/50 max-w-[430px] mx-auto z-40 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
-                                    {/* 관점 변경 버튼 섹션 */}
                                     <div className="grid grid-cols-2 gap-2 mb-16">
                                         {['사용 불편 관점', '기술 진화 관점', '심미적 관점', '비지니스 관점'].map(p => (
                                             <button
