@@ -206,40 +206,6 @@
             };
 
             useEffect(() => {
-                const checkSavedData = async () => {
-                    const savedData = await loadFromDB("autosave_project");
-                    if (savedData && savedData.state && step === 0 && apiKey) {
-                        if (window.confirm("이전에 작업 중이던 임시 저장 데이터가 있습니다. 이어서 진행하시겠습니까?\n(취소 시 기존 데이터는 삭제되고 새로 시작합니다)")) {
-                            const s = savedData.state;
-                            setRawData(s.rawData || "");
-                            setItemCount(s.itemCount || 0);
-                            setStep1Result(s.step1Result || null);
-                            setStep2Result(s.step2Result || null);
-                            setSelectedCategory(s.selectedCategory || null);
-                            setPerspective(s.perspective || "사용 불편 관점");
-                            setDeepDiveInput(s.deepDiveInput || "");
-                            setRootCauses(s.rootCauses || []);
-                            setSelectedCauseId(s.selectedCauseId || null);
-                            setDeepHypotheses(s.deepHypotheses || []);
-
-                            let targetStep = s.step;
-                            if (targetStep >= 4 && (!s.rootCauses || s.rootCauses.length === 0)) {
-                                targetStep = 3;
-                            } else if (targetStep >= 5 && (!s.deepHypotheses || s.deepHypotheses.length === 0)) {
-                                targetStep = 4;
-                            } else if (targetStep >= 6) {
-                                targetStep = 5;
-                            }
-                            setStep(targetStep > 0 ? targetStep : 1);
-                        } else {
-                            await clearDB("autosave_project");
-                        }
-                    }
-                };
-                checkSavedData();
-            }, [step, apiKey]);
-
-            useEffect(() => {
                 if (step > 0) {
                     const intervalId = setInterval(async () => {
                         const projectData = {
@@ -594,7 +560,7 @@
                     {isAnalyzing && (
                         <div className="fixed inset-0 z-[10000] bg-white/95 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center max-w-[430px] mx-auto">
                             <div className="w-14 h-14 rounded-full border-4 border-slate-100 border-t-blue-600 animate-spin mb-6"></div>
-                            <h3 className="text-[20px] font-black text-[#0f172a] tracking-tight">{loadingMsg || "AI 분석 중"}</h3>
+                            <h3 className="text-[20px] font-black text-[#0f172a] tracking-tight">분석 중</h3>
                         </div>
                     )}
 
