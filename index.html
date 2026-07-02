@@ -76,7 +76,7 @@
             </div>
         );
 
-        const Header = ({ step, setStep, copyAccumulatedContent, resetAll, step1Result, step2Result, selectedCategory, rootCauses, deepHypotheses, exportProject }) => {
+        const Header = ({ step, setStep, copyAccumulatedContent, step1Result, step2Result, selectedCategory, rootCauses, deepHypotheses }) => {
             const canGoForward = 
                 (step === 1 && step1Result) || 
                 (step === 2 && step2Result) || 
@@ -114,11 +114,8 @@
                             <button onClick={copyAccumulatedContent} className="p-1 text-slate-700 transition-colors active:scale-95" title="리포트 복사">
                                 <Icon name="Copy" size={20} />
                             </button>
-                            <button onClick={() => setStep(1)} className="p-1 text-slate-700 transition-colors active:scale-95" title="데이터 입력 화면으로">
+                            <button onClick={() => setStep(1)} className="p-1 -mr-1 text-slate-700 transition-colors active:scale-95" title="데이터 입력 화면으로">
                                 <Icon name="Home" size={20} />
-                            </button>
-                            <button onClick={exportProject} className="p-1 -mr-1 text-slate-700 transition-colors active:scale-95" title="프로젝트 수동 저장">
-                                <Icon name="Download" size={20} />
                             </button>
                         </div>
                     </div>
@@ -155,6 +152,12 @@
 
             const [qaInput, setQaInput] = useState("");
             const [opinionModal, setOpinionModal] = useState({ visible: false, title: "", opinions: [] });
+
+            const [currentProjectId, setCurrentProjectId] = useState(null);
+            const [currentProjectTitle, setCurrentProjectTitle] = useState("");
+            const [currentProjectCreatedAt, setCurrentProjectCreatedAt] = useState(null);
+            const [projectListModal, setProjectListModal] = useState(false);
+            const [projectList, setProjectList] = useState([]);
             
             const stateRef = useRef();
 
@@ -186,21 +189,6 @@
                 }
             };
 
-            const loadFromDB = async (key) => {
-                try {
-                    const db = await initDB();
-                    const tx = db.transaction("projects", "readonly");
-                    const request = tx.objectStore("projects").get(key);
-                    return new Promise((resolve) => {
-                        request.onsuccess = () => resolve(request.result);
-                        request.onerror = () => resolve(null);
-                    });
-                } catch (e) {
-                    console.error("DB Load Error:", e);
-                    return null;
-                }
-            };
-
             const clearDB = async (key) => {
                 try {
                     const db = await initDB();
@@ -209,75 +197,104 @@
                 } catch (e) {}
             };
 
-            useEffect(() => {
-                if (step === 0) return;
-                const timeoutId = setTimeout(async () => {
-                    const projectData = {
-                        version: "1.0",
-                        date: new Date().toISOString(),
-                        state: stateRef.current
-                    };
-                    await saveToDB("autosave_project", projectData);
-                }, 1500);
-                return () => clearTimeout(timeoutId);
-            }, [step, rawData, itemCount, perspective, deepDiveInput, step1Result, step2Result, selectedCategory, rootCauses, selectedCauseId, deepHypotheses]);
-
-            const exportProject = () => {
-                const projectData = {
-                    version: "1.0",
-                    date: new Date().toISOString(),
-                    state: stateRef.current
-                };
-                const blob = new Blob([JSON.stringify(projectData, null, 2)], { type: "application/json" });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `UX_Insight_Project_${new Date().toISOString().split('T')[0]}.json`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-                alert("프로젝트 데이터가 수동으로 PC/폰에 다운로드 되었습니다.");
+            const listAllProjects = async () => {
+                try {
+                    const db = await initDB();
+                    const tx = db.transaction("projects", "readonly");
+                    const store = tx.objectStore("projects");
+                    return new Promise((resolve) => {
+                        const items = [];
+                        const cursorReq = store.openCursor();
+                        cursorReq.onsuccess = (e) => {
+                            const cursor = e.target.result;
+                            if (cursor) {
+                                if (cursor.value && cursor.value.id) items.push(cursor.value);
+                                cursor.continue();
+                            } else {
+                                items.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+                                resolve(items);
+                            }
+                        };
+                        cursorReq.onerror = () => resolve([]);
+                    });
+                } catch (e) {
+                    return [];
+                }
             };
 
-            const importProject = (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onload = async (ev) => {
-                    try {
-                        const data = JSON.parse(ev.target.result);
-                        if (data && data.state && typeof data.state === 'object') {
-                            const s = data.state;
-                            const asArray = (v) => Array.isArray(v) ? v : [];
-                            setRawData(typeof s.rawData === 'string' ? s.rawData : "");
-                            setItemCount(Number.isFinite(s.itemCount) ? s.itemCount : 0);
-                            setStep1Result(s.step1Result && Array.isArray(s.step1Result.categories) ? s.step1Result : null);
-                            setStep2Result(s.step2Result && Array.isArray(s.step2Result.uxCategories) ? s.step2Result : null);
-                            setSelectedCategory(s.selectedCategory || null);
-                            setPerspective(typeof s.perspective === 'string' ? s.perspective : "사용 불편 관점");
-                            setDeepDiveInput(typeof s.deepDiveInput === 'string' ? s.deepDiveInput : "");
-                            setRootCauses(asArray(s.rootCauses));
-                            setSelectedCauseId(s.selectedCauseId ?? null);
-                            setDeepHypotheses(asArray(s.deepHypotheses));
+            const formatTimeOnly = (ts) => {
+                if (!ts) return "";
+                return new Date(ts).toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
+            };
 
-                            let targetStep = s.step;
-                            if (targetStep >= 4 && (!s.rootCauses || s.rootCauses.length === 0)) {
-                                targetStep = 3;
-                            } else if (targetStep >= 5 && (!s.deepHypotheses || s.deepHypotheses.length === 0)) {
-                                targetStep = 4;
-                            } else if (targetStep >= 6) {
-                                targetStep = 5;
-                            }
-                            setStep(targetStep > 0 ? targetStep : 1);
-                            alert("기존 프로젝트를 성공적으로 불러왔습니다. 이제 5초 간격으로 브라우저에 자동 임시 저장됩니다.");
-                        }
-                    } catch (err) {
-                        alert("잘못되거나 손상된 프로젝트 파일입니다.");
-                    }
-                };
-                reader.readAsText(file);
-                e.target.value = null; 
+            const formatDateTime = (ts) => {
+                if (!ts) return "";
+                const d = new Date(ts);
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                const timeStr = d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: true });
+                return `${y}. ${m}. ${day}. ${timeStr}`;
+            };
+
+            useEffect(() => {
+                if (!currentProjectId) return;
+                const timeoutId = setTimeout(async () => {
+                    const derivedTitle = (deepHypotheses && deepHypotheses[0] && deepHypotheses[0].title) || currentProjectTitle;
+                    const projectData = {
+                        id: currentProjectId,
+                        title: derivedTitle,
+                        createdAt: currentProjectCreatedAt,
+                        updatedAt: Date.now(),
+                        state: stateRef.current
+                    };
+                    await saveToDB(currentProjectId, projectData);
+                }, 1500);
+                return () => clearTimeout(timeoutId);
+            }, [currentProjectId, currentProjectTitle, currentProjectCreatedAt, step, rawData, itemCount, perspective, deepDiveInput, step1Result, step2Result, selectedCategory, rootCauses, selectedCauseId, deepHypotheses]);
+
+            const openProjectListModal = async () => {
+                const items = await listAllProjects();
+                setProjectList(items);
+                setProjectListModal(true);
+            };
+
+            const loadProjectFromList = (item) => {
+                const s = (item && item.state) || {};
+                setRawData(typeof s.rawData === 'string' ? s.rawData : "");
+                setItemCount(Number.isFinite(s.itemCount) ? s.itemCount : 0);
+                setStep1Result(s.step1Result && Array.isArray(s.step1Result.categories) ? s.step1Result : null);
+                setStep2Result(s.step2Result && Array.isArray(s.step2Result.uxCategories) ? s.step2Result : null);
+                setSelectedCategory(s.selectedCategory || null);
+                setPerspective(typeof s.perspective === 'string' ? s.perspective : "사용 불편 관점");
+                setDeepDiveInput(typeof s.deepDiveInput === 'string' ? s.deepDiveInput : "");
+                setRootCauses(Array.isArray(s.rootCauses) ? s.rootCauses : []);
+                setSelectedCauseId(s.selectedCauseId ?? null);
+                setDeepHypotheses(Array.isArray(s.deepHypotheses) ? s.deepHypotheses : []);
+
+                setCurrentProjectId(item.id);
+                setCurrentProjectTitle(item.title || `새 프로젝트 ${formatTimeOnly(item.createdAt)}`);
+                setCurrentProjectCreatedAt(item.createdAt || Date.now());
+
+                let targetStep = s.step;
+                if (targetStep >= 4 && (!s.rootCauses || s.rootCauses.length === 0)) {
+                    targetStep = 3;
+                } else if (targetStep >= 5 && (!s.deepHypotheses || s.deepHypotheses.length === 0)) {
+                    targetStep = 4;
+                } else if (targetStep >= 6) {
+                    targetStep = 5;
+                }
+                setStep(targetStep > 0 ? targetStep : 1);
+                setProjectListModal(false);
+            };
+
+            const deleteProjectFromList = async (e, id) => {
+                e.stopPropagation();
+                if (!window.confirm("이 프로젝트를 삭제하시겠습니까? 삭제한 데이터는 복구할 수 없습니다.")) return;
+                await clearDB(id);
+                if (currentProjectId === id) setCurrentProjectId(null);
+                const items = await listAllProjects();
+                setProjectList(items);
             };
 
             useEffect(() => { setTimeout(() => window.scrollTo(0,0), 50); }, [step]);
@@ -361,37 +378,7 @@
                     });
                     if (response.ok) {
                         setApiKey(inputKey);
-                        const savedData = await loadFromDB("autosave_project");
-                        if (savedData && savedData.state) {
-                            if (window.confirm("이전에 작업 중이던 임시 저장 데이터가 있습니다. 이어서 진행하시겠습니까?\n(취소 시 기존 데이터는 삭제되고 새로 시작합니다)")) {
-                                const s = savedData.state;
-                                setRawData(s.rawData || "");
-                                setItemCount(s.itemCount || 0);
-                                setStep1Result(s.step1Result || null);
-                                setStep2Result(s.step2Result || null);
-                                setSelectedCategory(s.selectedCategory || null);
-                                setPerspective(s.perspective || "사용 불편 관점");
-                                setDeepDiveInput(s.deepDiveInput || "");
-                                setRootCauses(s.rootCauses || []);
-                                setSelectedCauseId(s.selectedCauseId || null);
-                                setDeepHypotheses(s.deepHypotheses || []);
-
-                                let targetStep = s.step;
-                                if (targetStep >= 4 && (!s.rootCauses || s.rootCauses.length === 0)) {
-                                    targetStep = 3;
-                                } else if (targetStep >= 5 && (!s.deepHypotheses || s.deepHypotheses.length === 0)) {
-                                    targetStep = 4;
-                                } else if (targetStep >= 6) {
-                                    targetStep = 5;
-                                }
-                                setStep(targetStep > 0 ? targetStep : 1);
-                            } else {
-                                await clearDB("autosave_project");
-                                setStep(1);
-                            }
-                        } else {
-                            setStep(1);
-                        }
+                        setStep(1);
                         setError(null);
                     } else throw new Error();
                 } catch { setError("API 인증 실패. 키를 확인해 주세요."); }
@@ -401,7 +388,7 @@
             const askAI = async (note) => {
                 if(!note) return;
                 try {
-                    if (step === 2) await handleStep1Analysis(note);
+                    if (step === 2) await handleStep1Analysis(note, false);
                     else if (step === 3) await handleStep2Analysis(note);
                     else if (step === 4) await start5WhysAnalysis(note);
                     else if (step === 5) await exploreDeepHypotheses(selectedCauseId, note);
@@ -409,7 +396,7 @@
                 } catch { setError("오류 발생"); }
             };
 
-            const handleStep1Analysis = async (note = null) => {
+            const handleStep1Analysis = async (note = null, isNewProject = true) => {
                 setIsAnalyzing(true);
                 try {
                     const lines = rawData.split('\n');
@@ -439,6 +426,13 @@
                     setSelectedCauseId(null);
                     setDeepHypotheses([]);
                     setStep1Result({ summary: planRes.summary, categories }); 
+                    if (isNewProject) {
+                        // 완전히 새로운 분석을 시작하는 경우, 자동저장 대상이 되는 신규 프로젝트를 생성한다.
+                        const now = Date.now();
+                        setCurrentProjectId(`proj_${now}`);
+                        setCurrentProjectTitle(`새 프로젝트 ${formatTimeOnly(now)}`);
+                        setCurrentProjectCreatedAt(now);
+                    }
                     setStep(2);
                 } catch { setError("분석 실패. 데이터 형식을 확인해 주세요."); }
                 finally { setIsAnalyzing(false); }
@@ -575,14 +569,6 @@
                 } else { fallbackCopyTextToClipboard(text, "원문 데이터 복사됨"); }
             };
 
-            const resetAll = async () => { 
-                setStep(1); setStep1Result(null); setStep2Result(null); setSelectedCategory(null); 
-                setRawData(""); setItemCount(0); setPerspective("사용 불편 관점"); 
-                setRootCauses([]); setDeepHypotheses([]);
-                setSelectedCauseId(null); setDeepDiveInput(""); setQaInput("");
-                await clearDB("autosave_project");
-            };
-
             return (
                 <div className="w-full max-w-[430px] mx-auto bg-[#f8fafc] min-h-screen relative font-sans text-slate-900 pb-10 shadow-[0_0_60px_rgba(0,0,0,0.05)]">
                     {isAnalyzing && (
@@ -603,7 +589,7 @@
                     )}
 
                     {step > 0 && (
-                        <Header step={step} setStep={setStep} copyAccumulatedContent={copyAccumulatedContent} resetAll={resetAll} step1Result={step1Result} step2Result={step2Result} selectedCategory={selectedCategory} rootCauses={rootCauses} deepHypotheses={deepHypotheses} exportProject={exportProject} />
+                        <Header step={step} setStep={setStep} copyAccumulatedContent={copyAccumulatedContent} step1Result={step1Result} step2Result={step2Result} selectedCategory={selectedCategory} rootCauses={rootCauses} deepHypotheses={deepHypotheses} />
                     )}
 
                     <main id="main-content" className={step === 0 ? "" : "pt-[84px]"}>
@@ -647,8 +633,7 @@
                                             <button onClick={() => handleStep1Analysis()} disabled={!rawData.trim()} className="flex-1 bg-blue-600 disabled:bg-slate-700 text-white rounded-[1.2rem] font-black py-4">분석 시작</button>
                                         </div>
                                         <div className="mt-3">
-                                            <input type="file" id="import-project" accept=".json" className="hidden" onChange={importProject} />
-                                            <label htmlFor="import-project" className="w-full bg-transparent border border-white/20 hover:bg-white/10 py-4 rounded-[1.2rem] text-center font-bold cursor-pointer transition-colors flex items-center justify-center text-white/80">기존 프로젝트 열기 (.json)</label>
+                                            <button onClick={openProjectListModal} className="w-full bg-transparent border border-white/20 hover:bg-white/10 py-4 rounded-[1.2rem] text-center font-bold cursor-pointer transition-colors flex items-center justify-center text-white/80">프로젝트 불러오기</button>
                                         </div>
                                     </div>
                                 </div>
@@ -790,6 +775,32 @@
                             </div>
                         )}
                     </main>
+
+                    {projectListModal && (
+                        <div className="fixed inset-0 z-[2500] flex items-center justify-center bg-slate-900/60 p-5 backdrop-blur-sm animate-fade-in">
+                            <div className="bg-white text-slate-800 rounded-[2.5rem] w-full max-w-[390px] shadow-2xl relative border border-slate-100 overflow-hidden flex flex-col max-h-[85vh]">
+                                <div className="flex items-center justify-between px-8 pt-8 pb-5 border-b border-slate-100">
+                                    <h4 className="text-[20px] font-black text-slate-900 underline decoration-2 underline-offset-4">프로젝트 불러오기</h4>
+                                    <button onClick={() => setProjectListModal(false)} className="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-full transition-colors"><Icon name="X" size={22} /></button>
+                                </div>
+                                <div className="space-y-4 overflow-y-auto p-6 no-scrollbar flex-1">
+                                    {projectList.length === 0 ? (
+                                        <p className="text-center text-slate-400 font-bold py-10">저장된 프로젝트가 없습니다</p>
+                                    ) : projectList.map((item) => (
+                                        <div key={item.id} onClick={() => loadProjectFromList(item)} className="p-6 bg-slate-50 rounded-[1.5rem] border border-slate-100 flex items-center justify-between gap-3 cursor-pointer hover:border-slate-300 hover:bg-slate-100/70 transition-colors">
+                                            <div className="min-w-0 flex-1">
+                                                <h5 className="font-black text-slate-800 text-[17px] truncate">{item.title}</h5>
+                                                <p className="text-slate-400 font-bold text-[14px] mt-1.5">{formatDateTime(item.updatedAt || item.createdAt)}</p>
+                                            </div>
+                                            <button onClick={(e) => deleteProjectFromList(e, item.id)} className="p-2 text-slate-300 hover:text-red-500 transition-colors shrink-0" title="프로젝트 삭제">
+                                                <Icon name="Trash2" size={22} />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {opinionModal.visible && (
                         <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-slate-900/60 p-5 backdrop-blur-sm animate-fade-in">
