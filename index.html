@@ -18,13 +18,6 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        const safeGetItem = (key) => {
-            try { return localStorage.getItem(key); } catch (e) { return null; }
-        };
-        const safeSetItem = (key, value) => {
-            try { localStorage.setItem(key, value); } catch (e) { console.warn("Storage restricted"); }
-        };
-
         const Icon = ({ name, size = 24, className = "" }) => {
             const iconRef = useRef(null);
             useEffect(() => {
@@ -38,7 +31,6 @@
         };
 
         const MODEL_NAME = "gemini-flash-latest"; 
-        const SESSION_KEY = "gemini_api_key_ux_hub_integrated";
 
         const StepTitle = ({ title, desc }) => (
             <div className="mb-8 pt-2 animate-fade-in">
@@ -206,18 +198,17 @@
             };
 
             useEffect(() => {
-                if (step > 0) {
-                    const intervalId = setInterval(async () => {
-                        const projectData = {
-                            version: "1.0",
-                            date: new Date().toISOString(),
-                            state: stateRef.current
-                        };
-                        await saveToDB("autosave_project", projectData);
-                    }, 5000);
-                    return () => clearInterval(intervalId);
-                }
-            }, [step]);
+                if (step === 0) return;
+                const timeoutId = setTimeout(async () => {
+                    const projectData = {
+                        version: "1.0",
+                        date: new Date().toISOString(),
+                        state: stateRef.current
+                    };
+                    await saveToDB("autosave_project", projectData);
+                }, 1500);
+                return () => clearTimeout(timeoutId);
+            }, [step, rawData, itemCount, perspective, deepDiveInput, step1Result, step2Result, selectedCategory, rootCauses, selectedCauseId, deepHypotheses]);
 
             const exportProject = () => {
                 const projectData = {
@@ -244,18 +235,19 @@
                 reader.onload = async (ev) => {
                     try {
                         const data = JSON.parse(ev.target.result);
-                        if (data && data.state) {
+                        if (data && data.state && typeof data.state === 'object') {
                             const s = data.state;
-                            setRawData(s.rawData || "");
-                            setItemCount(s.itemCount || 0);
-                            setStep1Result(s.step1Result || null);
-                            setStep2Result(s.step2Result || null);
+                            const asArray = (v) => Array.isArray(v) ? v : [];
+                            setRawData(typeof s.rawData === 'string' ? s.rawData : "");
+                            setItemCount(Number.isFinite(s.itemCount) ? s.itemCount : 0);
+                            setStep1Result(s.step1Result && Array.isArray(s.step1Result.categories) ? s.step1Result : null);
+                            setStep2Result(s.step2Result && Array.isArray(s.step2Result.uxCategories) ? s.step2Result : null);
                             setSelectedCategory(s.selectedCategory || null);
-                            setPerspective(s.perspective || "사용 불편 관점");
-                            setDeepDiveInput(s.deepDiveInput || "");
-                            setRootCauses(s.rootCauses || []);
-                            setSelectedCauseId(s.selectedCauseId || null);
-                            setDeepHypotheses(s.deepHypotheses || []);
+                            setPerspective(typeof s.perspective === 'string' ? s.perspective : "사용 불편 관점");
+                            setDeepDiveInput(typeof s.deepDiveInput === 'string' ? s.deepDiveInput : "");
+                            setRootCauses(asArray(s.rootCauses));
+                            setSelectedCauseId(s.selectedCauseId ?? null);
+                            setDeepHypotheses(asArray(s.deepHypotheses));
 
                             let targetStep = s.step;
                             if (targetStep >= 4 && (!s.rootCauses || s.rootCauses.length === 0)) {
@@ -289,7 +281,7 @@
             };
 
             const updateDataAndCount = (text) => {
-                const { finalData, count } = processAndLimitData(text, false);
+                const { finalData, count } = processAndLimitData(text, itemCount < 500);
                 setRawData(finalData);
                 setItemCount(count);
             };
@@ -419,14 +411,16 @@
                     for (const cat of planRes.categories) {
                         const catName = cat.name;
                         const opinionString = (cat.opinions || "").toString();
-                        const opinionIndices = opinionString.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id));
+                        const opinionIndices = opinionString.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id) && id >= 0 && id < lines.length);
                         const opinionArray = opinionIndices.map(id => lines[id]).filter(Boolean);
-                        
+                        if (opinionArray.length === 0) continue; // 매칭된 원문이 없는 카테고리는 제외
+
                         const filteredDataForPrompt = opinionArray.join('\n');
                         const detailRes = await callGemini(PROMPTS.STEP1_DETAIL(filteredDataForPrompt, catName), true, null, false);
                         
                         categories.push({ name: catName, summary: detailRes.summary, count: opinionArray.length, opinions: opinionArray });
                     }
+                    if (categories.length === 0) throw new Error("유효한 카테고리를 찾지 못했습니다");
                     setStep1Result({ summary: planRes.summary, categories }); 
                     setStep(2);
                 } catch { setError("분석 실패. 데이터 형식을 확인해 주세요."); }
@@ -445,14 +439,16 @@
                     for (const cat of planRes.categories) {
                         const catName = cat.name;
                         const opinionString = (cat.opinions || "").toString();
-                        const opinionIndices = opinionString.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id));
+                        const opinionIndices = opinionString.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id) && id >= 0 && id < lines.length);
                         const opinionArray = opinionIndices.map(id => lines[id]).filter(Boolean);
-                        
+                        if (opinionArray.length === 0) continue; // 매칭된 원문이 없는 이슈는 제외
+
                         const filteredDataForPrompt = opinionArray.join('\n');
                         const detailRes = await callGemini(PROMPTS.STEP2_DETAIL(filteredDataForPrompt, catName), true, null, false);
                         
                         uxCategories.push({ name: catName, summary: detailRes.summary, count: opinionArray.length, opinions: opinionArray });
                     }
+                    if (uxCategories.length === 0) throw new Error("유효한 이슈를 찾지 못했습니다");
                     setStep2Result({ summary: planRes.summary, uxCategories }); 
                     setStep(3);
                 } catch { setError("분석 실패. 데이터 형식을 확인해 주세요."); }
@@ -493,6 +489,13 @@
                 callGemini(`Cause: ${selected.realCause}`, true, PROMPTS.HYPOTHESIS(perspective, deepDiveInput, selected.realCause, note))
                     .then(res => { if(res && res.hypotheses) { setDeepHypotheses(res.hypotheses); setStep(5); } });
             };
+
+            useEffect(() => {
+                if (!opinionModal.visible) return;
+                const onKeyDown = (e) => { if (e.key === 'Escape') setOpinionModal({ visible: false, title: "", opinions: [] }); };
+                window.addEventListener('keydown', onKeyDown);
+                return () => window.removeEventListener('keydown', onKeyDown);
+            }, [opinionModal.visible]);
 
             const fallbackCopyTextToClipboard = (text, successMsg) => {
                 const textArea = document.createElement("textarea");
@@ -552,6 +555,7 @@
                 setStep(1); setStep1Result(null); setStep2Result(null); setSelectedCategory(null); 
                 setRawData(""); setItemCount(0); setPerspective("사용 불편 관점"); 
                 setRootCauses([]); setDeepHypotheses([]);
+                setSelectedCauseId(null); setDeepDiveInput(""); setQaInput("");
                 await clearDB("autosave_project");
             };
 
@@ -560,7 +564,7 @@
                     {isAnalyzing && (
                         <div className="fixed inset-0 z-[10000] bg-white/95 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center max-w-[430px] mx-auto">
                             <div className="w-14 h-14 rounded-full border-4 border-slate-100 border-t-blue-600 animate-spin mb-6"></div>
-                            <h3 className="text-[20px] font-black text-[#0f172a] tracking-tight">분석 중</h3>
+                            <h3 className="text-[20px] font-black text-[#0f172a] tracking-tight">{loadingMsg || "분석 중"}</h3>
                         </div>
                     )}
 
@@ -666,7 +670,7 @@
                                                 <h3 className="font-black text-[20px] flex-1 text-slate-800 leading-tight pr-2">{cat.name}</h3>
                                                 <div className="flex flex-col items-end gap-2.5 shrink-0 ml-2">
                                                     <button onClick={() => setOpinionModal({ visible: true, title: cat.name, opinions: cat.opinions })} className="bg-slate-50 px-4 py-1.5 rounded-xl border border-slate-100 text-slate-500 font-bold text-[13px] hover:bg-slate-100 transition-colors whitespace-nowrap">{cat.opinions ? cat.opinions.length : 0}건 원문 보기</button>
-                                                    <button onClick={() => { setSelectedCategory(cat); setDeepDiveInput(`이슈: ${cat.name}\n내용: ${cat.summary}`); }} className={`px-6 py-2.5 rounded-xl font-black transition-all shadow-md active:scale-95 text-[15px] ${selectedCategory?.name === cat.name ? 'bg-indigo-600 text-white' : 'bg-slate-900 text-white'}`}>이슈 선택</button>
+                                                    <button onClick={() => { setSelectedCategory(cat); setDeepDiveInput(`이슈: ${cat.name}\n내용: ${cat.summary}`); setRootCauses([]); setSelectedCauseId(null); setDeepHypotheses([]); }} className={`px-6 py-2.5 rounded-xl font-black transition-all shadow-md active:scale-95 text-[15px] ${selectedCategory?.name === cat.name ? 'bg-indigo-600 text-white' : 'bg-slate-900 text-white'}`}>이슈 선택</button>
                                                 </div>
                                             </div>
                                             <p className="text-slate-600 text-[17px] font-light text-justify leading-relaxed whitespace-pre-line">{cat.summary}</p>
