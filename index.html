@@ -4,6 +4,16 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>User Voice Analysis & Design Insight</title>
+  <!-- 홈 화면에 추가해 실행하면 주소창 없이 전체 화면으로 열림 -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <meta name="theme-color" content="#064e3b" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <!-- default: 아이폰 홈 화면 실행 시 상단 메뉴가 시계·배터리 표시줄과 겹치지 않도록 -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Voice Lab" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
@@ -459,6 +469,31 @@ Return ONLY JSON:
     setInterval(()=>persist(false),CONFIG.AUTOSAVE_MS);
     window.addEventListener("beforeunload",()=>persist(false));
     document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")persist(false)});
+
+    /* =========================================================
+       스마트폰 전체 화면 (Trend Insight Lab과 동일한 방식)
+       브라우저는 사용자 터치 없이 전체 화면 전환을 허용하지 않으므로,
+       화면을 처음 터치하는 순간 전체 화면으로 전환합니다.
+       (파일 선택·저장 창 등으로 전체 화면이 풀리면 다음 터치 때 다시 전환)
+       ========================================================= */
+    (function setupMobileFullscreen() {
+      const isMobile = window.matchMedia("(pointer: coarse)").matches || /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+      const standalone = window.matchMedia("(display-mode: fullscreen), (display-mode: standalone)").matches || navigator.standalone;
+      if (!isMobile || standalone) return;
+      const root = document.documentElement;
+      const request = root.requestFullscreen || root.webkitRequestFullscreen;
+      if (!request) return;   // 아이폰은 웹페이지 전체 화면 미지원(iPad만 지원) → '홈 화면에 추가'로 주소창 없이 실행
+      const isFull = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+      const enter = () => {
+        if (isFull()) return;
+        try {
+          const r = request.call(root, { navigationUI: "hide" });
+          if (r && r.catch) r.catch(() => {});
+        } catch (e) { /* 무시 */ }
+      };
+      document.addEventListener("click", enter, true);
+      document.addEventListener("touchend", enter, { capture: true, passive: true });
+    })();
 
     // 세션 API 키가 있으면 바로 홈으로, 없으면 인증 화면으로 시작합니다.
     if(state.apiKey) state.step=0;
