@@ -79,7 +79,7 @@
       PROJECTS_KEY:"voc_insight_projects_v3",
       MAX_PROJECTS:5,
       AUTOSAVE_MS:5000,
-      MAX_RECORDS:500,
+      MAX_RECORDS:1000,
       MAX_FILE_BYTES:25*1024*1024
     };
 
@@ -199,13 +199,14 @@
     const AI={
       MODELS:["gemini-3.5-flash","gemini-flash-latest","gemini-2.5-flash"],
       MAX_OUTPUT:32768,
-      CONCURRENCY:10,
+      CONCURRENCY:20,
       BATCH:50,
       ATTEMPTS:6,
       BACKOFF:[1500,3000,6000,10000,15000],
       TIMEOUT:{design:150000,assign:75000,summary:75000,refine:90000,basic:120000},
       TEXT:{design:800,assign:600,refine:500,summary:300},
-      SUMMARY_SAMPLE:150
+      SUMMARY_SAMPLE:150,
+      DESIGN_SAMPLE:600   // 군집 설계는 전체에서 고르게 뽑은 표본으로, 배정은 전체 대상
     };
     let modelIdx=0;
     const modelCompat={};   // 모델별로 확인된 호환 수준을 기억해 같은 400 오류를 반복하지 않음
@@ -333,16 +334,16 @@
     const KO_RULE="사람이 읽는 모든 값은 자연스럽고 전문적인 한국어로 쓰세요. 원문이 영어여도 한국어로 씁니다. VOC ID, 불가피한 제품명, UX/UI 같은 일반 약어만 영문을 허용합니다. 마크다운 강조 기호는 쓰지 마세요.";
 
     const PROMPTS={
-      DESIGN:(records,note,mode)=>`작업: 어피니티 군집 체계 설계
+      DESIGN:(records,note,mode,total)=>`작업: 어피니티 군집 체계 설계
 당신은 어피니티 다이어그램 전문 시니어 ${mode==="ux"?"UX·제품디자인 ":""}리서처입니다.
 ${mode==="ux"?"아래 VOC는 전체 원문 중 UX디자인·제품디자인과 직접 관련된 것으로 선별된 Voice입니다.\n":""}
-[원문 VOC ${records.length}건]
+[원문 VOC ${records.length}건${total>records.length?` — 전체 ${total}건에서 전 구간에 걸쳐 고르게 뽑은 대표 표본`:""}]
 ${vocLines(records,AI.TEXT.design)}
 ${noteBlock(note)}
-과제: 위 VOC 전체를 읽고, 사전에 정한 분류 틀(UX·제품디자인·기술·비즈니스·긍정/부정·기능 유형 등) 없이 의미·경험·관심사의 유사성만으로 상향식 어피니티 군집 체계를 설계하세요.
+과제: 위 VOC${total>records.length?"(전체를 대표하는 표본)":" 전체"}를 읽고, 사전에 정한 분류 틀(UX·제품디자인·기술·비즈니스·긍정/부정·기능 유형 등) 없이 의미·경험·관심사의 유사성만으로 상향식 어피니티 군집 체계를 설계하세요.
 규칙:
 - 군집 수: 데이터가 뒷받침하면 ${mode==="ux"?"4~7":"5~7"}개. 데이터가 적거나 한쪽에 집중되어 있으면 더 적게 만드세요.
-- 모든 VOC가 정확히 한 군집에 들어갈 수 있도록 전체를 빠짐없이 포괄하고, 군집끼리 의미가 겹치지 않게 경계를 분명히 하세요.
+- ${total>records.length?`전체 ${total}건의 `:""}모든 VOC가 정확히 한 군집에 들어갈 수 있도록 빠짐없이 포괄하고, 군집끼리 의미가 겹치지 않게 경계를 분명히 하세요.
 - name: 간결한 귀납적 군집명. definition: 이 군집이 묶는 공통 의미 1~2문장. include: 포함 기준 1문장. exclude: 이웃 군집과 헷갈릴 때의 제외 기준 1문장. representativeIds: 대표 VOC ID 2~4개(제공된 ID만).
 ${mode==="ux"?"- 군집은 UX·제품디자인 문제 또는 기회의 단위가 되게 하세요.\n":""}- itemName: 분석 대상인 대표 제품·서비스·공간·경험을 나타내는 간결한 한국어 명사(예: 냉장고, 건조기, 모바일 뱅킹 앱). 이슈·증상·부품·컨셉명은 쓰지 마세요.
 - 이 단계에서는 VOC를 군집에 배정하지 마세요. 군집 체계만 설계합니다.
@@ -500,7 +501,8 @@ Return ONLY JSON:
     }
     async function designClusters(records,note,signal,mode){
       let out=null;
-      const json=await callGemini(PROMPTS.DESIGN(records,note,mode),{schema:SCHEMA.design,thinking:"medium",timeoutMs:AI.TIMEOUT.design,signal,validate:(j)=>{out=normDesign(j,records,mode)}});
+      const sample=systematicSample(records,AI.DESIGN_SAMPLE);
+      const json=await callGemini(PROMPTS.DESIGN(sample,note,mode,records.length),{schema:SCHEMA.design,thinking:"medium",timeoutMs:AI.TIMEOUT.design,signal,validate:(j)=>{out=normDesign(j,records,mode)}});
       return out||normDesign(json,records,mode);
     }
     async function assignAll(records,clusters,cp,signal,report,label){
@@ -696,7 +698,7 @@ Return ONLY JSON:
         <section class="bg-white rounded-[2rem] p-6 border-2 border-slate-200 shadow-md mb-6"><input type="file" id="file-up" class="hidden" accept=".xlsx,.xls,.csv,.txt" onchange="Actions.uploadFile(event)"><label for="file-up" class="upload-zone w-full px-5 py-5 rounded-2xl font-extrabold flex flex-col items-center justify-center gap-3 cursor-pointer text-center"><i data-lucide="upload-cloud" class="w-7 h-7 flex-shrink-0"></i><span class="upload-filename">${state.importFileName?esc(state.importFileName):"XLSX · XLS · CSV · TXT 업로드"}</span></label>
         ${state.importFileName&&state.importSelectedColumn?`<div class="mt-4 px-4 py-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-center"><p class="t-meta font-bold text-emerald-900">자동 인식 완료</p><p class="t-small text-emerald-800 break-all">${esc(state.importSheetName)} · ${esc(state.importSelectedColumn)}</p></div>`:""}</section>
         ${dataSourceSummary()}
-        <section class="bg-white rounded-3xl p-5 border-2 border-slate-200 mb-6"><h3 class="t-h3 text-slate-900 mb-2">데이터 처리 원칙</h3><p class="t-small text-slate-600">500건 초과 시 앞부분 500건만 자르지 않고 데이터 전체 구간에서 균등하게 500건을 샘플링합니다. 각 VOC에는 V001 형태의 고유 ID를 부여해 최종 컨셉까지 근거를 추적합니다.</p></section>
+        <section class="bg-white rounded-3xl p-5 border-2 border-slate-200 mb-6"><h3 class="t-h3 text-slate-900 mb-2">데이터 처리 원칙</h3><p class="t-small text-slate-600">1,000건 초과 시 앞부분 1,000건만 자르지 않고 데이터 전체 구간에서 균등하게 1,000건을 샘플링합니다. 각 VOC에는 V001 형태의 고유 ID를 부여해 최종 컨셉까지 근거를 추적합니다.</p></section>
         ${dock(primaryBtn(state.records.length?`VOC ${state.records.length}건 분석 시작`:"먼저 데이터를 적용해 주세요","Actions.generateOverall()",!state.records.length))}
       </div>`;
     }
