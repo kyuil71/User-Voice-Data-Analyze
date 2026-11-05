@@ -132,11 +132,12 @@
       rootCauses:[], selectedCauseId:null,
       concepts:[],
       expanded:{},
+      pipe:{},
       // 업로드 UI용 임시 메타데이터 (snapshot에서 제외)
       importFileName:"", importSheetName:"", importHeaders:[], importSelectedColumn:""
     }};
 
-    let state={apiKey:sessionStorage.getItem(CONFIG.SESSION_KEY_API)||"",step:-1,isAnalyzing:false,loadingMsg:"",errorMsg:null,evidenceModal:null,...blankProject()};
+    let state={apiKey:sessionStorage.getItem(CONFIG.SESSION_KEY_API)||"",step:-1,isAnalyzing:false,loadingMsg:"",loadingDetail:"",errorMsg:null,evidenceModal:null,...blankProject()};
     const drafts=Object.create(null);
     window.setDraft=(id,v)=>{drafts[id]=v};
     const draft=(id)=>id in drafts?drafts[id]:"";
@@ -148,7 +149,7 @@
     window.setState=setState;window.__state=state;
 
     function invalidateFromData(){
-      state.overall=null;state.ux=null;state.selectedUxId=null;state.rootCauses=[];state.selectedCauseId=null;state.concepts=[];state.dataVersion++;
+      state.overall=null;state.ux=null;state.selectedUxId=null;state.rootCauses=[];state.selectedCauseId=null;state.concepts=[];state.dataVersion++;state.pipe={};stopUxPrefetch();
     }
     function invalidateFromOverall(){state.ux=null;state.selectedUxId=null;state.rootCauses=[];state.selectedCauseId=null;state.concepts=[]}
     function invalidateFromUx(){state.selectedUxId=null;state.rootCauses=[];state.selectedCauseId=null;state.concepts=[]}
@@ -187,37 +188,243 @@
       return {total:all.length,assigned:assigned.length,duplicate:dup.length,unassigned:miss.length,unassignedIds:miss,duplicateIds:dup,rate:all.length?Math.round(assigned.length/all.length*100):0};
     }
 
-    const PROMPTS={
-      OVERALL:(records,note)=>`You are a Senior UX Researcher specializing in affinity diagramming.\n\n[RAW VOC DATA]\n${numberedVOC(records)}\n\n${note?`[REVISION REQUEST]\n${note}\n`:""}
-Perform a bottom-up affinity analysis of ALL provided Voice data. Cluster Voices only by similarity of meaning, experience, and expressed concern. Do not begin with or force any predetermined category framework such as UX, product design, technology, business, positive/negative, or feature type. Every VOC ID must be assigned to exactly one inductively discovered affinity cluster. Do not filter out any Voice, invent evidence, or paraphrase evidence IDs.
-Rules:
-- Use Korean, clear professional language.
-- itemName: identify the single primary product, service, space, or experience being analyzed. Use a concise Korean item noun such as "냉장고", "건조기", or "모바일 뱅킹 앱". Do not use an issue, symptom, component, or design concept as itemName.
-- executiveSummary: 4-5 sentences describing major patterns and tensions.
-- Create 5-7 affinity clusters when the data supports that range; use fewer only when the dataset is small or clearly concentrated.
-- Each cluster needs a concise inductive name, 3-4 sentence summary, and evidenceIds containing only provided IDs.
-- Every provided ID must appear exactly once across all clusters. If ambiguous, choose the single most similar cluster.
-- No markdown bold.
-Return ONLY JSON:
-{"itemName":"대표 아이템명","executiveSummary":"...","clusters":[{"name":"...","summary":"...","evidenceIds":["V001","V002"]}]}`,
+    /* =========================================================
+       AI 호출 엔진 — 유료 API 기준 · 오류 자동 복구
+       - 답 형식(JSON 구조)을 API에 지정해 형식 오류 제거
+       - 출력 한도는 넉넉히, 생각 분량은 단계별로 제한
+       - 429·5xx·네트워크·시간 초과는 점점 길게 기다리며 재시도
+       - 모델이 없거나 계속 실패하면 예비 모델로 자동 전환
+       - 설정 호환 오류(400)는 옵션을 줄여 자동 재요청
+       ========================================================= */
+    const AI={
+      MODELS:["gemini-3.5-flash","gemini-flash-latest","gemini-2.5-flash"],
+      MAX_OUTPUT:32768,
+      CONCURRENCY:10,
+      BATCH:50,
+      ATTEMPTS:6,
+      BACKOFF:[1500,3000,6000,10000,15000],
+      TIMEOUT:{design:150000,assign:75000,summary:75000,refine:90000,basic:120000},
+      TEXT:{design:800,assign:600,refine:500,summary:300},
+      SUMMARY_SAMPLE:150
+    };
+    let modelIdx=0;
+    const modelCompat={};   // 모델별로 확인된 호환 수준을 기억해 같은 400 오류를 반복하지 않음
+    let activeController=null;
+    let uxJob=null;
+    const abortErr=()=>{const e=new Error("__aborted__");e.aborted=true;return e};
+    const failErr=(m,extra)=>Object.assign(new Error(m),extra||{});
+    function sleep(ms,signal){return new Promise((res,rej)=>{if(signal?.aborted)return rej(abortErr());const t=setTimeout(()=>{signal?.removeEventListener("abort",on);res()},ms);const on=()=>{clearTimeout(t);rej(abortErr())};signal?.addEventListener("abort",on,{once:true})})}
+    function waitVisible(signal){
+      if(typeof document==="undefined"||document.visibilityState!=="hidden")return Promise.resolve();
+      return new Promise((res,rej)=>{const on=()=>{if(document.visibilityState!=="hidden"){done();res()}};const ab=()=>{done();rej(abortErr())};const done=()=>{document.removeEventListener("visibilitychange",on);signal?.removeEventListener("abort",ab)};document.addEventListener("visibilitychange",on);signal?.addEventListener("abort",ab,{once:true})});
+    }
+    function parseModelJson(text){
+      let t=String(text||"").trim().replace(/^```(?:json)?\s*/i,"").replace(/```\s*$/i,"").trim();
+      try{return JSON.parse(t)}catch(e){}
+      const starts=[t.indexOf("{"),t.indexOf("[")].filter(i=>i>=0);const first=starts.length?Math.min(...starts):-1;const last=Math.max(t.lastIndexOf("}"),t.lastIndexOf("]"));
+      if(first>=0&&last>first){try{return JSON.parse(t.slice(first,last+1))}catch(e){}}
+      throw failErr("AI 응답 형식이 올바르지 않습니다.");
+    }
+    function retryDelayOf(body){try{const d=(body?.error?.details||[]).find(x=>String(x?.["@type"]||"").includes("RetryInfo"));const s=parseFloat(String(d?.retryDelay||""));return isFinite(s)?s*1000:0}catch(e){return 0}}
+    const LOWER_THINKING={high:"medium",medium:"low",low:"minimal",minimal:null};
 
-      UX:(records,note)=>`당신은 시니어 UX 리서처이자 제품디자인 리서처입니다. 이 분석은 전체 원문 VOC를 대상으로 수행하는 독립 분석입니다. 1단계 Affinity 결과를 참조·상속·재분류하거나 재현하지 마세요.\n\n[전체 원문 VOC]\n${numberedVOC(records)}\n\n${note?`[수정 요청]\n${note}\n`:""}
-먼저 모든 Voice를 검토하여 UX디자인 또는 제품디자인과 직접 관련된 Voice만 선별하세요. 그다음 선별된 Voice만 사용해 사전 카테고리 없이 의미 유사성에 따른 새로운 상향식 Affinity 분석을 수행하세요.
-필수 규칙:
-- 원문이 영어 또는 다른 언어여도 모든 분석 결과 값은 자연스럽고 전문적인 한국어로 작성하세요.
-- 군집명, summary, designImplication, overallSummary에 영어 문장이나 영문 컨셉명을 사용하지 마세요. VOC ID, 불가피한 제품명, UX/UI 같은 일반 약어만 영문을 허용합니다.
-- JSON 속성명은 제시된 스키마의 영문을 그대로 유지하되, 사람이 읽는 모든 속성값은 한국어로 작성하세요.
-- UX디자인 관련성에는 사용성, 인터랙션, 정보구조, 작업 흐름, 이해도, 접근성, 피드백, 신뢰, 오류 예방, 사용자 경험이 포함됩니다.
-- 제품디자인 관련성에는 형태, 구조, 인간공학, 조작, 유지관리, 조립, 소재, 내구성, 안전, 치수, 제품과 사용자 간 상호작용이 포함됩니다.
-- 가격, 배송, 판촉, 일반적인 브랜드 감정 또는 무관한 서비스만 다루는 Voice는 구체적인 UX·제품디자인 시사점이 없는 한 제외하세요.
-- 관련 없는 Voice를 억지로 군집에 넣지 마세요. 선별된 Voice ID는 정확히 하나의 군집에만 포함하고, 제외된 Voice는 어떤 군집에도 포함하지 마세요.
-- 사실이나 근거 ID를 만들지 마세요. evidenceIds에는 제공된 ID만 사용하세요.
-- 선별 데이터가 뒷받침하면 4~7개의 UX·제품디자인 Affinity 군집을 만드세요.
-- summary는 선별 Voice에 근거한 UX·제품디자인 문제 또는 기회를 3~4문장으로 설명하세요.
-- designImplication은 최종 해결책이 아닌 문제 정의 수준의 디자인 시사점을 2~3문장으로 설명하세요.
-- overallSummary는 독립 선별 결과와 주요 UX·제품디자인 패턴을 4~5문장으로 설명하세요.
-아래 형식의 JSON만 반환하세요:
-{"overallSummary":"UX·제품디자인 관련 Voice의 주요 경향을 설명하는 한국어 요약","issues":[{"name":"한국어 군집명","summary":"한국어 분석 요약","designImplication":"한국어 디자인 시사점","evidenceIds":["V001"]}]}`,
+    async function callGemini(prompt,opt={}){
+      const signal=opt.signal||activeController?.signal;
+      let thinking=opt.thinking===undefined?null:opt.thinking;
+      let compat=0,fails5xx=0,lastError="분석 요청에 실패했습니다.";
+      for(let attempt=0;attempt<AI.ATTEMPTS;attempt++){
+        if(signal?.aborted)throw abortErr();
+        await waitVisible(signal);
+        const model=AI.MODELS[Math.min(modelIdx,AI.MODELS.length-1)];
+        compat=Math.max(compat,modelCompat[model]||0);
+        const gen={responseMimeType:"application/json",maxOutputTokens:compat>=2?8192:AI.MAX_OUTPUT};
+        if(opt.schema&&compat<1)gen.responseSchema=opt.schema;
+        if(thinking&&compat<1)gen.thinkingConfig={thinkingLevel:thinking};
+        const ctl=new AbortController();const onAbort=()=>ctl.abort();signal?.addEventListener("abort",onAbort,{once:true});
+        let timedOut=false;const timer=setTimeout(()=>{timedOut=true;ctl.abort()},opt.timeoutMs||AI.TIMEOUT.basic);
+        let wait=0,quick=false;
+        try{
+          const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(state.apiKey||"")}`,{
+            method:"POST",signal:ctl.signal,headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:gen})
+          });
+          if(!res.ok){
+            let body=null;try{body=await res.json()}catch(e){}
+            const msg=String(body?.error?.message||"");
+            if(res.status===400){
+              if(/api[\s_-]*key/i.test(msg))throw failErr("API 키가 올바르지 않습니다. 키를 다시 확인해 주세요.",{fatal:true});
+              if(/location|region/i.test(msg))throw failErr("현재 지역에서는 이 API를 사용할 수 없습니다.",{fatal:true});
+              if(compat<2){compat++;modelCompat[model]=compat;quick=true;throw failErr("요청 설정을 호환 모드로 바꿔 다시 요청합니다.")}
+              throw failErr(`요청이 거부되었습니다 (400). ${cut(msg,120)}`,{fatal:true});
+            }
+            if(res.status===401||res.status===403)throw failErr("API 키 권한이 없거나 결제가 활성화되지 않았습니다. Google AI Studio에서 키와 결제 상태를 확인해 주세요.",{fatal:true});
+            if(res.status===404){
+              if(modelIdx<AI.MODELS.length-1){modelIdx++;compat=0;quick=true;throw failErr("예비 모델로 전환합니다.")}
+              throw failErr("사용 가능한 AI 모델을 찾지 못했습니다.",{fatal:true});
+            }
+            if(res.status===429){wait=retryDelayOf(body);throw failErr("요청이 많아 잠시 기다린 뒤 다시 시도합니다.")}
+            if(res.status>=500){fails5xx++;if(fails5xx>=2&&modelIdx<AI.MODELS.length-1){modelIdx++;compat=0;fails5xx=0}throw failErr(`AI 서버가 일시적으로 응답하지 않습니다 (${res.status}).`)}
+            throw failErr(`요청이 거부되었습니다 (상태 ${res.status}).`,{fatal:true});
+          }
+          const data=await res.json();
+          const cand=data?.candidates?.[0];
+          if(!cand){if(data?.promptFeedback?.blockReason)throw failErr("AI 안전 정책으로 응답이 차단되었습니다. 원문에 민감한 표현이 있는지 확인해 주세요.",{fatal:true});throw failErr("AI가 빈 응답을 반환했습니다.")}
+          if(cand.finishReason==="MAX_TOKENS"){thinking=thinking?LOWER_THINKING[thinking]:null;throw failErr("응답이 길어 생각 분량을 줄여 다시 요청합니다.")}
+          const text=(cand.content?.parts||[]).filter(p=>!p.thought&&typeof p.text==="string").map(p=>p.text).join("");
+          if(!text.trim())throw failErr("AI가 빈 응답을 반환했습니다.");
+          const json=parseModelJson(text);
+          if(opt.validate)opt.validate(json);
+          return json;
+        }catch(err){
+          if(signal?.aborted)throw abortErr();
+          if(err.fatal)throw err;
+          lastError=timedOut?"응답 시간이 초과되었습니다.":(err.name==="TypeError"?"네트워크 연결이 불안정합니다.":err.message);
+        }finally{clearTimeout(timer);signal?.removeEventListener("abort",onAbort)}
+        if(!quick){const base=AI.BACKOFF[Math.min(attempt,AI.BACKOFF.length-1)];await sleep(Math.min(30000,Math.max(wait,base))+Math.random()*AI.BACKOFF[0]*.5,signal)}
+      }
+      throw failErr(`${lastError} 잠시 후 다시 실행하면 완료된 부분부터 이어서 진행합니다.`);
+    }
+
+    const koreanCorrectionPrompt=(result)=>`You are a professional Korean UX writer. Convert only the human-readable values in the JSON below into natural professional Korean. Preserve the JSON structure, property names, numbers, VOC IDs, and evidenceIds exactly. Keep only unavoidable product names and common abbreviations such as UX/UI in English. Do not re-analyze the source data, add facts, remove content, or change evidence assignments. Return only the corrected JSON.\n\n[JSON TO CORRECT]\n${JSON.stringify(result)}`;
+    function englishDominant(v){const t=String(v||"").trim();if(!t)return false;const ko=(t.match(/[가-힣]/g)||[]).length,en=(t.match(/[A-Za-z]/g)||[]).length;return en>=12&&(ko<5||en>ko*1.2)}
+    function conceptsNeedKorean(res){return (Array.isArray(res?.concepts)?res.concepts.flatMap(x=>[x?.title,x?.coreValue,x?.concept,x?.userValue,...(Array.isArray(x?.actions)?x.actions:[])]):[]).some(englishDominant)}
+    async function callKoreanJson(prompt,needsCorrection){let out=await callGemini(prompt);if(needsCorrection(out)){try{const fixed=await callGemini(koreanCorrectionPrompt(out));if(fixed&&typeof fixed==="object")out=fixed}catch(e){if(e?.aborted)throw e}}return out}
+
+    let wakeLock=null;
+    async function keepAwake(on){try{if(on){if(!wakeLock&&navigator.wakeLock&&document.visibilityState==="visible"){wakeLock=await navigator.wakeLock.request("screen");wakeLock.addEventListener("release",()=>{wakeLock=null})}}else if(wakeLock){const w=wakeLock;wakeLock=null;await w.release()}}catch(e){wakeLock=null}}
+    async function withLoading(msg,fn){
+      const ctl=new AbortController();activeController=ctl;
+      setState({isAnalyzing:true,loadingMsg:msg,loadingDetail:"",errorMsg:null});keepAwake(true);
+      const report=(t)=>{if(activeController!==ctl||!state.isAnalyzing)return;state.loadingDetail=t;const el=document.getElementById("loading-detail");if(el)el.textContent=t};
+      try{const out=await fn(ctl.signal,report);setState({isAnalyzing:false,loadingDetail:""});return out}
+      catch(err){if(err?.aborted||ctl.signal.aborted){setState({isAnalyzing:false,loadingDetail:""});toast("분석을 취소했습니다.","info");return null}console.error(err);setState({isAnalyzing:false,loadingDetail:"",errorMsg:err.message||"분석에 실패했습니다."});return null}
+      finally{if(activeController===ctl)activeController=null;keepAwake(false)}
+    }
+
+    /* =========================================================
+       어피니티 분석 파이프라인
+       설계(1회) → 배정(50건씩 동시) → 품질 점검·보정 → 요약(군집별 동시)
+       단계마다 결과를 검증하고, 끝난 부분은 저장해 중단돼도 이어서 진행
+       ========================================================= */
+    const SCH={
+      str:{type:"STRING"},int:{type:"INTEGER"},bool:{type:"BOOLEAN"},
+      arr:(items)=>({type:"ARRAY",items}),
+      obj:(properties,required)=>({type:"OBJECT",properties,required:required||Object.keys(properties)})
+    };
+    const CLUSTER_DEF=SCH.obj({name:SCH.str,definition:SCH.str,include:SCH.str,exclude:SCH.str});
+    const SCHEMA={
+      design:SCH.obj({itemName:SCH.str,clusters:SCH.arr(SCH.obj({name:SCH.str,definition:SCH.str,include:SCH.str,exclude:SCH.str,representativeIds:SCH.arr(SCH.str)}))}),
+      assign:SCH.obj({assignments:SCH.arr(SCH.obj({id:SCH.str,c:SCH.int}))}),
+      relevance:SCH.obj({results:SCH.arr(SCH.obj({id:SCH.str,related:SCH.bool}))}),
+      refineNew:SCH.obj({newClusters:SCH.arr(CLUSTER_DEF),assignments:SCH.arr(SCH.obj({id:SCH.str,c:SCH.int}))}),
+      split:SCH.obj({split:SCH.bool,subclusters:SCH.arr(CLUSTER_DEF),assignments:SCH.arr(SCH.obj({id:SCH.str,s:SCH.int}))}),
+      summary:SCH.obj({name:SCH.str,summary:SCH.str}),
+      summaryUx:SCH.obj({name:SCH.str,summary:SCH.str,designImplication:SCH.str}),
+      exec:SCH.obj({executiveSummary:SCH.str}),
+      execUx:SCH.obj({overallSummary:SCH.str}),
+      texts:SCH.obj({texts:SCH.arr(SCH.str)})
+    };
+    const vocLines=(records,max)=>records.map(r=>`[${r.id}] ${cut(r.text,max)}`).join("\n");
+    const clusterLines=(clusters)=>clusters.map((c,i)=>`${i+1}. ${c.name} — ${c.definition}\n   포함: ${c.include||"-"}\n   제외: ${c.exclude||"-"}`).join("\n");
+    const noteBlock=(note)=>note?`\n[수정 요청 — 반드시 반영]\n${note}\n`:"";
+    const UX_SCOPE=`UX디자인 관련: 사용성, 인터랙션, 정보구조, 작업 흐름, 이해도, 접근성, 피드백, 신뢰, 오류 예방, 사용자 경험.
+제품디자인 관련: 형태, 구조, 인간공학, 조작, 유지관리, 조립, 소재, 내구성, 안전, 치수, 제품과 사용자 간 상호작용.
+가격, 배송, 판촉, 일반적인 브랜드 감정 또는 무관한 서비스만 다루는 Voice는 구체적인 UX·제품디자인 시사점이 없는 한 관련 없음으로 판정합니다.`;
+    const KO_RULE="사람이 읽는 모든 값은 자연스럽고 전문적인 한국어로 쓰세요. 원문이 영어여도 한국어로 씁니다. VOC ID, 불가피한 제품명, UX/UI 같은 일반 약어만 영문을 허용합니다. 마크다운 강조 기호는 쓰지 마세요.";
+
+    const PROMPTS={
+      DESIGN:(records,note,mode)=>`작업: 어피니티 군집 체계 설계
+당신은 어피니티 다이어그램 전문 시니어 ${mode==="ux"?"UX·제품디자인 ":""}리서처입니다.
+${mode==="ux"?"아래 VOC는 전체 원문 중 UX디자인·제품디자인과 직접 관련된 것으로 선별된 Voice입니다.\n":""}
+[원문 VOC ${records.length}건]
+${vocLines(records,AI.TEXT.design)}
+${noteBlock(note)}
+과제: 위 VOC 전체를 읽고, 사전에 정한 분류 틀(UX·제품디자인·기술·비즈니스·긍정/부정·기능 유형 등) 없이 의미·경험·관심사의 유사성만으로 상향식 어피니티 군집 체계를 설계하세요.
+규칙:
+- 군집 수: 데이터가 뒷받침하면 ${mode==="ux"?"4~7":"5~7"}개. 데이터가 적거나 한쪽에 집중되어 있으면 더 적게 만드세요.
+- 모든 VOC가 정확히 한 군집에 들어갈 수 있도록 전체를 빠짐없이 포괄하고, 군집끼리 의미가 겹치지 않게 경계를 분명히 하세요.
+- name: 간결한 귀납적 군집명. definition: 이 군집이 묶는 공통 의미 1~2문장. include: 포함 기준 1문장. exclude: 이웃 군집과 헷갈릴 때의 제외 기준 1문장. representativeIds: 대표 VOC ID 2~4개(제공된 ID만).
+${mode==="ux"?"- 군집은 UX·제품디자인 문제 또는 기회의 단위가 되게 하세요.\n":""}- itemName: 분석 대상인 대표 제품·서비스·공간·경험을 나타내는 간결한 한국어 명사(예: 냉장고, 건조기, 모바일 뱅킹 앱). 이슈·증상·부품·컨셉명은 쓰지 마세요.
+- 이 단계에서는 VOC를 군집에 배정하지 마세요. 군집 체계만 설계합니다.
+- ${KO_RULE}`,
+
+      ASSIGN:(clusters,batch,allowZero)=>`작업: 어피니티 군집 배정
+당신은 어피니티 분류를 맡은 시니어 UX 리서처입니다. 아래 군집 정의에 따라 각 VOC를 의미가 가장 가까운 군집 번호 하나에 배정하세요.
+[군집 정의]
+${clusterLines(clusters)}
+
+[배정할 VOC ${batch.length}건]
+${vocLines(batch,AI.TEXT.assign)}
+
+규칙:
+- 위에 제공된 모든 VOC ID에 대해 정확히 한 번씩, VOC 순서대로 답하세요. ID를 빠뜨리거나 새로 만들지 마세요.
+- c는 군집 번호(1~${clusters.length})입니다.${allowZero?" 어느 군집의 정의와 포함 기준에도 맞지 않는 경우에만 0을 쓰세요.":" 반드시 1~"+clusters.length+" 중 가장 가까운 번호를 고르세요. 0은 쓰지 마세요."}
+- 여러 군집에 걸치면 핵심 관심사가 가장 강하게 드러나는 군집 하나를 고르세요.`,
+
+      RELEVANCE:(batch,note)=>`작업: UX·제품디자인 관련 Voice 선별
+당신은 시니어 UX 리서처이자 제품디자인 리서처입니다. 각 VOC가 UX디자인 또는 제품디자인과 직접 관련되는지 판정하세요.
+${UX_SCOPE}
+${noteBlock(note)}
+[판정할 VOC ${batch.length}건]
+${vocLines(batch,AI.TEXT.assign)}
+
+규칙:
+- 위에 제공된 모든 VOC ID에 대해 정확히 한 번씩, VOC 순서대로 답하세요. ID를 빠뜨리거나 새로 만들지 마세요.
+- related는 관련이면 true, 아니면 false입니다.`,
+
+      REFINE_NEW:(clusters,voices)=>`작업: 애매한 Voice 재검토
+아래 VOC들은 기존 어피니티 군집 어디에도 잘 맞지 않는다고 판정되었습니다.
+[기존 군집]
+${clusterLines(clusters)}
+
+[재검토할 VOC ${voices.length}건]
+${vocLines(voices,AI.TEXT.refine)}
+
+규칙:
+- 기존 군집으로 충분히 설명되면 그 번호(1~${clusters.length})에 배정하세요.
+- 기존 군집과 뚜렷이 다른 공통 의미가 3건 이상 반복될 때만 새 군집을 최대 2개 정의하고, 새 군집은 ${clusters.length+1}번부터 번호를 이어서 배정하세요. 새 군집이 필요 없으면 newClusters는 빈 배열로 두세요.
+- 모든 VOC를 정확히 한 번씩 배정하세요. 0은 쓰지 마세요.
+- ${KO_RULE}`,
+
+      SPLIT:(cluster,members)=>`작업: 너무 넓은 군집 점검
+아래 군집에 전체 VOC의 큰 비중이 몰렸습니다. 의미 차이가 뚜렷한 하위 묶음이 있으면 2~3개 하위 군집으로 나누세요. 나눌 근거가 약하면 split을 false로 하고 나누지 마세요.
+[군집] ${cluster.name} — ${cluster.definition}
+
+[군집에 배정된 VOC ${members.length}건]
+${vocLines(members,AI.TEXT.refine)}
+
+규칙:
+- split이 true이면 subclusters에 2~3개 하위 군집을 정의하고, 모든 VOC를 정확히 한 번씩 하위 군집 번호 s(1부터)에 배정하세요.
+- split이 false이면 subclusters와 assignments는 빈 배열로 두세요.
+- ${KO_RULE}`,
+
+      SUMMARY:(cluster,members,total,mode,note)=>`작업: 어피니티 군집 요약
+아래는 하나의 ${mode==="ux"?"UX·제품디자인 ":""}어피니티 군집에 실제로 배정된 VOC입니다 (군집 전체 ${total}건${members.length<total?` 중 ${members.length}건을 고르게 추림`:""}).
+[군집] ${cluster.name} — ${cluster.definition}
+${noteBlock(note)}
+[배정된 VOC]
+${vocLines(members,AI.TEXT.summary)}
+
+규칙:
+- name: 배정된 VOC 내용에 가장 잘 맞는 간결한 군집명. 기존 이름이 적절하면 그대로 두세요.
+- summary: ${mode==="ux"?"선별 Voice에 근거한 UX·제품디자인 문제 또는 기회":"이 군집의 핵심 패턴과 사용자 경험"}을 3~4문장으로 설명하세요.
+${mode==="ux"?"- designImplication: 최종 해결책이 아닌 문제 정의 수준의 디자인 시사점을 2~3문장으로 설명하세요.\n":""}- 실제 VOC에 근거해 쓰고, 사실이나 인용문을 지어내지 마세요.
+- ${KO_RULE}`,
+
+      EXEC:(clusters,total,mode,note,extra)=>`작업: 어피니티 전체 요약
+${mode==="ux"?`전체 VOC ${extra.total}건 중 UX·제품디자인 관련 Voice ${total}건을 독립적으로 선별해 군집화한 결과입니다.`:`전체 VOC ${total}건을 사전 분류 없이 유사성만으로 군집화한 결과입니다.`}
+${noteBlock(note)}
+[군집별 정의와 대표 VOC]
+${clusters.map((c,i)=>`${i+1}. ${c.name} (${c.ids.length}건) — ${c.definition}\n${c.sample.map(r=>`   [${r.id}] ${cut(r.text,200)}`).join("\n")}`).join("\n")}
+
+규칙:
+- ${mode==="ux"?"overallSummary":"executiveSummary"}: 주요 패턴과 군집 사이의 긴장 관계를 4~5문장으로 설명하세요. 군집 규모를 고려하세요.
+- 사실을 지어내지 마세요.
+- ${KO_RULE}`,
+
+      KOREAN:(texts)=>`작업: 한국어 문장 다듬기
+아래 texts 배열의 각 문장을 자연스럽고 전문적인 한국어로 바꾸세요. 의미를 바꾸거나 내용을 더하거나 빼지 마세요. 배열 길이와 순서를 그대로 유지하세요. 불가피한 제품명과 UX/UI 같은 일반 약어만 영문으로 둡니다.
+${JSON.stringify({texts})}`,
 
       ROOT:(issue,evidence,perspective,note)=>`You are a Senior Root Cause Analyst. Lens: ${perspective}.\n\n[SELECTED UX ISSUE]\nName: ${issue.name}\nSummary: ${issue.summary}\nDesign implication: ${issue.designImplication}\n\n[ACTUAL VOC EVIDENCE]\n${numberedVOC(evidence)}\n\n${note?`[REVISION REQUEST]\n${note}\n`:""}
 Create 3-5 distinct 5-Whys chains grounded in the evidence above.
@@ -244,49 +451,187 @@ Return ONLY JSON:
 {"concepts":[{"id":1,"title":"한국어 컨셉명","coreValue":"한국어 핵심 가치","concept":"한국어 디자인 컨셉 설명","userValue":"한국어 사용자 가치","actions":["한국어 실행 항목 1","한국어 실행 항목 2","한국어 실행 항목 3","한국어 실행 항목 4"],"evidenceIds":["V001"]}]}`
     };
 
-    let activeController=null;
-    function parseModelJson(text){
-      let t=String(text||"").trim().replace(/^```(?:json)?\s*/i,"").replace(/```\s*$/i,"").trim();
-      try{return JSON.parse(t)}catch(e){}
-      const starts=[t.indexOf("{"),t.indexOf("[")].filter(i=>i>=0);const first=starts.length?Math.min(...starts):-1;const last=Math.max(t.lastIndexOf("}"),t.lastIndexOf("]"));
-      if(first>=0&&last>first){try{return JSON.parse(t.slice(first,last+1))}catch(e){}}
-      throw new Error("AI 응답을 JSON으로 해석하지 못했습니다. 다시 시도해 주세요.");
+    async function pool(items,limit,fn,signal){
+      let next=0,firstErr=null;
+      const worker=async()=>{while(next<items.length&&!firstErr){if(signal?.aborted)throw abortErr();const k=next++;try{await fn(items[k],k)}catch(e){if(!firstErr)firstErr=e}}};
+      await Promise.all(Array.from({length:Math.max(1,Math.min(limit,items.length))},worker));
+      if(firstErr)throw firstErr;
     }
-    async function callGemini(prompt){
-      const controller=new AbortController(); activeController=controller; const delays=[900,2200,5000];let lastError="분석 요청에 실패했습니다.";
-      for(let i=0;i<=delays.length;i++){
-        try{
-          const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.MODEL_NAME}:generateContent?key=${encodeURIComponent(state.apiKey||"")}`,{
-            method:"POST",signal:controller.signal,headers:{"Content-Type":"application/json"},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:"application/json",temperature:.45,maxOutputTokens:8192}})
-          });
-          if(!res.ok){const er=new Error(res.status===429?"요청이 많습니다. 잠시 후 다시 시도해 주세요.":`요청이 거부되었습니다 (상태 ${res.status}).`);er.fatal=[400,401,403,404].includes(res.status);throw er}
-          const data=await res.json();const cand=data?.candidates?.[0];if(cand?.finishReason==="MAX_TOKENS")throw new Error("응답이 최대 길이에 도달했습니다. 데이터 수를 줄이거나 다시 시도해 주세요.");
-          const text=cand?.content?.parts?.[0]?.text;if(!text)throw new Error("AI가 빈 응답을 반환했습니다.");return parseModelJson(text);
-        }catch(err){if(err.name==="AbortError"){const e=new Error("__aborted__");e.aborted=true;throw e}lastError=err.message;if(err.fatal||i===delays.length)break;await new Promise(r=>setTimeout(r,delays[i]))}
-      }
-      throw new Error(lastError);
-    }
-    const koreanCorrectionPrompt=(result)=>`You are a professional Korean UX writer. Convert only the human-readable values in the JSON below into natural professional Korean. Preserve the JSON structure, property names, numbers, VOC IDs, and evidenceIds exactly. Keep only unavoidable product names and common abbreviations such as UX/UI in English. Do not re-analyze the source data, add facts, remove content, or change evidence assignments. Return only the corrected JSON.\n\n[JSON TO CORRECT]\n${JSON.stringify(result)}`;
-    function englishDominant(v){const t=String(v||"").trim();if(!t)return false;const ko=(t.match(/[가-힣]/g)||[]).length,en=(t.match(/[A-Za-z]/g)||[]).length;return en>=12&&(ko<5||en>ko*1.2)}
-    function uxNeedsKorean(res){return [res?.overallSummary,...(Array.isArray(res?.issues)?res.issues.flatMap(x=>[x?.name,x?.summary,x?.designImplication]):[])].some(englishDominant)}
-    function conceptsNeedKorean(res){return (Array.isArray(res?.concepts)?res.concepts.flatMap(x=>[x?.title,x?.coreValue,x?.concept,x?.userValue,...(Array.isArray(x?.actions)?x.actions:[])]):[]).some(englishDominant)}
-    async function callKoreanJson(prompt,needsCorrection){let out=await callGemini(prompt);if(needsCorrection(out))out=await callGemini(koreanCorrectionPrompt(out));if(needsCorrection(out))throw new Error("분석 결과가 한국어로 생성되지 않았습니다. 다시 시도해 주세요.");return out}
-    async function withLoading(msg,fn){setState({isAnalyzing:true,loadingMsg:msg,errorMsg:null});try{const out=await fn();setState({isAnalyzing:false});return out}catch(err){if(err?.aborted){setState({isAnalyzing:false});toast("분석을 취소했습니다.","info");return null}console.error(err);setState({isAnalyzing:false,errorMsg:err.message||"분석에 실패했습니다."});return null}finally{activeController=null}}
+    const chunk=(arr,n)=>{const out=[];for(let i=0;i<arr.length;i+=n)out.push(arr.slice(i,i+n));return out};
+    const clean=(v)=>String(v??"").replace(/\*\*/g,"").trim();
+    const pipeKey=(note)=>`${state.projectId}|${state.dataVersion}|${note||""}`;
+    function checkpoint(kind,key){if(!state.pipe||typeof state.pipe!=="object")state.pipe={};if(state.pipe[kind]?.key!==key)state.pipe[kind]={key};return state.pipe[kind]}
 
-    function normOverall(res){
-      const cats=Array.isArray(res?.clusters)?res.clusters:Array.isArray(res?.categories)?res.categories:[]; if(!cats.length)throw new Error("전체 Affinity 군집을 생성하지 못했습니다.");
-      const categories=cats.map((c,i)=>({id:uid("cat"),name:String(c.name||`카테고리 ${i+1}`).trim(),summary:String(c.summary||"").trim(),evidenceIds:normalizeIds(c.evidenceIds)})).filter(c=>c.evidenceIds.length);
-      if(!categories.length)throw new Error("VOC 근거가 연결된 Affinity 군집을 찾지 못했습니다.");
-      return {itemName:cut(String(res.itemName||"").trim(),24),executiveSummary:String(res.executiveSummary||"").trim(),categories,quality:coverageOf(categories)};
+    // 로컬 유사도 — AI가 끝까지 판단하지 못한 극소수 Voice의 마지막 안전장치
+    function bigrams(s){const set=new Set();String(s||"").toLowerCase().replace(/[^0-9a-z가-힣]+/g," ").split(" ").filter(Boolean).forEach(w=>{if(w.length===1)set.add(w);for(let i=0;i<w.length-1;i++)set.add(w.slice(i,i+2))});return set}
+    function nearestIndex(text,profiles,sizes){const a=bigrams(text);let best=0,bestScore=-1;profiles.forEach((p,i)=>{let inter=0;a.forEach(g=>{if(p.has(g))inter++});const score=(a.size&&p.size)?inter/Math.sqrt(a.size*p.size):0;if(score>bestScore||(score===bestScore&&sizes[i]>sizes[best])){best=i;bestScore=score}});return best}
+    function buildProfiles(clusters,assign,byId){return clusters.map((c,i)=>{const members=Object.keys(assign).filter(id=>assign[id]===i+1).slice(0,40).map(id=>byId[id]?.text||"");return bigrams([c.name,c.definition,c.include,...members].join(" "))})}
+
+    function readAssign(json,batch,K,allowZero,key="c"){
+      const ids=new Set(batch.map(r=>r.id)),out={};
+      (Array.isArray(json?.assignments)?json.assignments:[]).forEach(a=>{const id=String(a?.id??"").trim().toUpperCase();const c=Number(a?.[key]);if(ids.has(id)&&!(id in out)&&Number.isInteger(c)&&c>=(allowZero?0:1)&&c<=K)out[id]=c});
+      return out;
     }
-    function normUx(res){
-      const list=Array.isArray(res?.issues)?res.issues:[];if(!list.length)throw new Error("UX/Design 이슈를 생성하지 못했습니다.");
-      const used=new Set();
-      const issues=list.map((x,i)=>({id:uid("ux"),name:String(x.name||`UX/제품디자인 군집 ${i+1}`).trim(),summary:String(x.summary||"").trim(),designImplication:String(x.designImplication||"").trim(),evidenceIds:normalizeIds(x.evidenceIds).filter(id=>{if(used.has(id))return false;used.add(id);return true})})).filter(x=>x.evidenceIds.length);
-      if(!issues.length)throw new Error("UX·제품디자인 관련 Voice를 찾지 못했습니다.");
-      const selected=new Set(issues.flatMap(x=>x.evidenceIds));
-      return {overallSummary:String(res.overallSummary||"").trim(),issues,selectionStats:{total:state.records.length,selected:selected.size,excluded:Math.max(0,state.records.length-selected.size)}};
+    async function assignBatch(clusters,batch,signal,allowZero){
+      const res={};let pending=batch;
+      for(let round=0;round<3&&pending.length;round++){
+        const json=await callGemini(PROMPTS.ASSIGN(clusters,pending,allowZero),{schema:SCHEMA.assign,thinking:"low",timeoutMs:AI.TIMEOUT.assign,signal});
+        Object.assign(res,readAssign(json,pending,clusters.length,allowZero));
+        pending=pending.filter(r=>!(r.id in res));
+      }
+      pending.forEach(r=>{res[r.id]=0});
+      return res;
     }
+    async function relevanceBatch(batch,note,signal){
+      const res={};let pending=batch;
+      for(let round=0;round<3&&pending.length;round++){
+        const json=await callGemini(PROMPTS.RELEVANCE(pending,note),{schema:SCHEMA.relevance,thinking:"low",timeoutMs:AI.TIMEOUT.assign,signal});
+        const ids=new Set(pending.map(r=>r.id));
+        (Array.isArray(json?.results)?json.results:[]).forEach(x=>{const id=String(x?.id??"").trim().toUpperCase();const v=x?.related;if(ids.has(id)&&!(id in res)&&(v===true||v===false||v==="true"||v==="false"))res[id]=(v===true||v==="true")});
+        pending=pending.filter(r=>!(r.id in res));
+      }
+      pending.forEach(r=>{res[r.id]=null});
+      return res;
+    }
+    function normDesign(json,records,mode){
+      const max=8;const list=(Array.isArray(json?.clusters)?json.clusters:[]).map(c=>({name:clean(c?.name),definition:clean(c?.definition),include:clean(c?.include),exclude:clean(c?.exclude)})).filter(c=>c.name&&c.definition).slice(0,max);
+      if(!list.length)throw failErr("군집 체계를 만들지 못했습니다.");
+      return {itemName:cut(clean(json?.itemName),24),clusters:list};
+    }
+    async function designClusters(records,note,signal,mode){
+      let out=null;
+      const json=await callGemini(PROMPTS.DESIGN(records,note,mode),{schema:SCHEMA.design,thinking:"medium",timeoutMs:AI.TIMEOUT.design,signal,validate:(j)=>{out=normDesign(j,records,mode)}});
+      return out||normDesign(json,records,mode);
+    }
+    async function assignAll(records,clusters,cp,signal,report,label){
+      const batches=chunk(records,AI.BATCH);cp.assign=cp.assign||{};
+      let done=batches.filter((_,i)=>cp.assign[i]).length;report(`${label} ${done}/${batches.length}`);
+      await pool(batches,AI.CONCURRENCY,async(b,i)=>{if(cp.assign[i])return;cp.assign[i]=await assignBatch(clusters,b,signal,true);done++;report(`${label} ${done}/${batches.length}`)},signal);
+      const map={};batches.forEach((b,i)=>b.forEach(r=>{const c=cp.assign[i]?.[r.id];map[r.id]=Number.isInteger(c)?c:0}));
+      return map;
+    }
+
+    async function refineClusters(records,baseClusters,map,signal){
+      let clusters=baseClusters.map(c=>({...c}));const assign={...map};const auto=new Set();
+      const byId=Object.fromEntries(records.map(r=>[r.id,r]));const total=records.length;
+      const soft=async(fn)=>{try{await fn()}catch(e){if(e?.aborted||signal?.aborted)throw abortErr();console.warn("보정 단계 건너뜀",e)}};
+      // 1) 어느 군집에도 맞지 않은 Voice 재검토
+      let zero=records.filter(r=>!assign[r.id]);
+      if(zero.length){
+        if(zero.length>=Math.max(5,Math.ceil(total*.03))&&clusters.length<8){
+          await soft(async()=>{
+            for(const part of chunk(zero,120)){
+              const json=await callGemini(PROMPTS.REFINE_NEW(clusters,part),{schema:SCHEMA.refineNew,thinking:"low",timeoutMs:AI.TIMEOUT.refine,signal});
+              const fresh=(Array.isArray(json?.newClusters)?json.newClusters:[]).map(c=>({name:clean(c?.name),definition:clean(c?.definition),include:clean(c?.include),exclude:clean(c?.exclude)})).filter(c=>c.name&&c.definition).slice(0,Math.max(0,Math.min(2,8-clusters.length)));
+              const K=clusters.length;const got=readAssign(json,part,K+fresh.length,false);
+              const counts={};Object.values(got).forEach(c=>{counts[c]=(counts[c]||0)+1});
+              const keep=fresh.map((_,j)=>(counts[K+j+1]||0)>=3);
+              const remap={};let next=K;fresh.forEach((c,j)=>{if(keep[j]){next++;remap[K+j+1]=next;clusters.push(c)}});
+              Object.entries(got).forEach(([id,c])=>{if(c<=K)assign[id]=c;else if(remap[c])assign[id]=remap[c]});
+            }
+          });
+        }else{
+          await soft(async()=>{const got=await assignBatch(clusters,zero,signal,false);Object.entries(got).forEach(([id,c])=>{if(c>0)assign[id]=c})});
+        }
+        zero=records.filter(r=>!assign[r.id]);
+        if(zero.length){const profiles=buildProfiles(clusters,assign,byId);const sizes=clusters.map((_,i)=>Object.values(assign).filter(c=>c===i+1).length);zero.forEach(r=>{assign[r.id]=nearestIndex(r.text,profiles,sizes)+1;auto.add(r.id)})}
+      }
+      // 2) 한 군집에 40% 이상 몰리면 한 번만 나눔을 검토
+      const sizeOf=(i)=>Object.values(assign).filter(c=>c===i+1).length;
+      let big=-1,bigSize=0;clusters.forEach((_,i)=>{const s=sizeOf(i);if(s>bigSize){big=i;bigSize=s}});
+      if(big>=0&&bigSize>=20&&bigSize/total>.4&&clusters.length<8){
+        await soft(async()=>{
+          const members=records.filter(r=>assign[r.id]===big+1);
+          const json=await callGemini(PROMPTS.SPLIT(clusters[big],members),{schema:SCHEMA.split,thinking:"low",timeoutMs:AI.TIMEOUT.refine,signal});
+          const subs=(Array.isArray(json?.subclusters)?json.subclusters:[]).map(c=>({name:clean(c?.name),definition:clean(c?.definition),include:clean(c?.include),exclude:clean(c?.exclude)})).filter(c=>c.name&&c.definition).slice(0,Math.min(3,9-clusters.length));
+          if(json?.split!==true||subs.length<2)return;
+          const got=readAssign(json,members,subs.length,false,"s");
+          if(Object.keys(got).length<members.length*.8)return;
+          const profiles=subs.map(c=>bigrams([c.name,c.definition,c.include].join(" ")));const sizes=subs.map((_,j)=>Object.values(got).filter(s=>s===j+1).length);
+          members.forEach(r=>{if(!got[r.id]){got[r.id]=nearestIndex(r.text,profiles,sizes)+1;auto.add(r.id)}});
+          const target=subs.map((_,j)=>j===0?big+1:clusters.length+j);
+          clusters[big]=subs[0];subs.slice(1).forEach(c=>clusters.push(c));
+          members.forEach(r=>{assign[r.id]=target[got[r.id]-1]});
+        });
+      }
+      // 3) 빈 군집 제거, 원문 순서로 근거 정리
+      const result=clusters.map((c,i)=>({...c,ids:records.filter(r=>assign[r.id]===i+1).map(r=>r.id)})).filter(c=>c.ids.length);
+      return {clusters:result,auto:[...auto].filter(id=>byId[id])};
+    }
+
+    async function summarize(records,refined,cp,signal,report,mode,note,extra){
+      const byId=Object.fromEntries(records.map(r=>[r.id,r]));cp.sums=cp.sums||{};
+      const clusters=refined.clusters.map(c=>({...c,sample:systematicSample(c.ids.map(id=>byId[id]),3)}));
+      const tasks=[...clusters.map((_,i)=>i),"exec"];let done=tasks.filter(t=>t==="exec"?cp.exec:cp.sums[t]).length;
+      const label=mode==="ux"?"5/5 · 군집 요약 작성":"4/4 · 군집 요약 작성";report(`${label} ${done}/${tasks.length}`);
+      await pool(tasks,AI.CONCURRENCY,async(t)=>{
+        if(t==="exec"){
+          if(cp.exec)return;
+          const j=await callGemini(PROMPTS.EXEC(clusters,records.length,mode,note,extra),{schema:mode==="ux"?SCHEMA.execUx:SCHEMA.exec,thinking:"low",timeoutMs:AI.TIMEOUT.summary,signal,validate:(x)=>{if(!clean(mode==="ux"?x?.overallSummary:x?.executiveSummary))throw failErr("전체 요약이 비어 있습니다.")}});
+          cp.exec={text:clean(mode==="ux"?j.overallSummary:j.executiveSummary)};
+        }else{
+          if(cp.sums[t])return;const c=clusters[t];const members=systematicSample(c.ids.map(id=>byId[id]),AI.SUMMARY_SAMPLE);
+          const j=await callGemini(PROMPTS.SUMMARY(c,members,c.ids.length,mode,note),{schema:mode==="ux"?SCHEMA.summaryUx:SCHEMA.summary,thinking:"low",timeoutMs:AI.TIMEOUT.summary,signal,validate:(x)=>{if(!clean(x?.summary))throw failErr("군집 요약이 비어 있습니다.")}});
+          cp.sums[t]={name:clean(j.name)||c.name,summary:clean(j.summary),designImplication:clean(j.designImplication)};
+        }
+        done++;report(`${label} ${done}/${tasks.length}`);
+      },signal);
+      return clusters.map((c,i)=>({name:cp.sums[i].name||c.name,summary:cp.sums[i].summary||c.definition,designImplication:cp.sums[i].designImplication||"",evidenceIds:c.ids}));
+    }
+
+    // 결과에 영어 문장이 섞였을 때만 해당 문장만 한국어로 다듬음 (실패해도 결과는 그대로 유지)
+    async function ensureKorean(fields,signal){
+      const idx=fields.map((f,i)=>englishDominant(f.get())?i:-1).filter(i=>i>=0);if(!idx.length)return;
+      try{const texts=idx.map(i=>fields[i].get());const j=await callGemini(PROMPTS.KOREAN(texts),{schema:SCHEMA.texts,thinking:"low",timeoutMs:AI.TIMEOUT.summary,signal});const out=Array.isArray(j?.texts)?j.texts:[];if(out.length===texts.length)idx.forEach((i,k)=>{const v=clean(out[k]);if(v)fields[i].set(v)})}catch(e){if(e?.aborted||signal?.aborted)throw abortErr()}
+    }
+
+    async function runOverall(note,signal,report){
+      const records=state.records;if(!records.length)throw failErr("분석할 VOC가 없습니다.");
+      const cp=checkpoint("overall",pipeKey(note));
+      if(!cp.design){report("1/4 · 군집 체계 설계 중");cp.design=await designClusters(records,note,signal,"overall")}
+      const map=await assignAll(records,cp.design.clusters,cp,signal,report,"2/4 · Voice 배정");
+      if(!cp.refined){report("3/4 · 군집 품질 점검 중");cp.refined=await refineClusters(records,cp.design.clusters,map,signal)}
+      const groups=await summarize(records,cp.refined,cp,signal,report,"overall",note);
+      const out={itemName:cp.design.itemName,executiveSummary:cp.exec.text,categories:groups.map(g=>({id:uid("cat"),name:g.name,summary:g.summary,evidenceIds:g.evidenceIds})),autoAssigned:cp.refined.auto.length};
+      await ensureKorean([{get:()=>out.executiveSummary,set:v=>{out.executiveSummary=v}},...out.categories.flatMap(c=>[{get:()=>c.name,set:v=>{c.name=v}},{get:()=>c.summary,set:v=>{c.summary=v}}])],signal);
+      out.quality=coverageOf(out.categories);
+      if(out.quality.assigned!==out.quality.total||out.quality.duplicate){delete state.pipe.overall;throw failErr("군집 배정 검증에 실패했습니다. 다시 실행해 주세요.")}
+      delete state.pipe.overall;
+      return out;
+    }
+
+    async function runUx(note,signal,report){
+      const records=state.records;if(!records.length)throw failErr("분석할 VOC가 없습니다.");
+      const cp=checkpoint("ux",pipeKey(note));
+      const batches=chunk(records,AI.BATCH);cp.rel=cp.rel||{};
+      let done=batches.filter((_,i)=>cp.rel[i]).length;report(`1/5 · 관련 Voice 선별 ${done}/${batches.length}`);
+      await pool(batches,AI.CONCURRENCY,async(b,i)=>{if(cp.rel[i])return;cp.rel[i]=await relevanceBatch(b,note,signal);done++;report(`1/5 · 관련 Voice 선별 ${done}/${batches.length}`)},signal);
+      const rel={};batches.forEach((b,i)=>b.forEach(r=>{rel[r.id]=cp.rel[i]?.[r.id]}));
+      const selected=records.filter(r=>rel[r.id]===true);const unresolved=records.filter(r=>rel[r.id]!==true&&rel[r.id]!==false).length;
+      if(!selected.length)throw failErr("UX·제품디자인과 직접 관련된 Voice를 찾지 못했습니다. 수정 지시로 선별 기준을 조정해 보세요.");
+      if(!cp.design){report("2/5 · 군집 체계 설계 중");cp.design=await designClusters(selected,note,signal,"ux")}
+      const map=await assignAll(selected,cp.design.clusters,cp,signal,report,"3/5 · Voice 배정");
+      if(!cp.refined){report("4/5 · 군집 품질 점검 중");cp.refined=await refineClusters(selected,cp.design.clusters,map,signal)}
+      const groups=await summarize(selected,cp.refined,cp,signal,report,"ux",note,{total:records.length});
+      const issues=groups.map(g=>({id:uid("ux"),name:g.name,summary:g.summary,designImplication:g.designImplication,evidenceIds:g.evidenceIds}));
+      const out={overallSummary:cp.exec.text,issues,selectionStats:{total:records.length,selected:selected.length,excluded:records.length-selected.length,unresolved},autoAssigned:cp.refined.auto.length};
+      await ensureKorean([{get:()=>out.overallSummary,set:v=>{out.overallSummary=v}},...issues.flatMap(x=>[{get:()=>x.name,set:v=>{x.name=v}},{get:()=>x.summary,set:v=>{x.summary=v}},{get:()=>x.designImplication,set:v=>{x.designImplication=v}}])],signal);
+      const seen=new Set();for(const x of issues)for(const id of x.evidenceIds){if(seen.has(id)){delete state.pipe.ux;throw failErr("UX 군집 배정 검증에 실패했습니다. 다시 실행해 주세요.")}seen.add(id)}
+      if(seen.size!==selected.length){delete state.pipe.ux;throw failErr("UX 군집 배정 검증에 실패했습니다. 다시 실행해 주세요.")}
+      delete state.pipe.ux;
+      return out;
+    }
+
+    // 2단계는 1단계 결과와 독립적이므로, 1단계 결과를 보는 동안 뒤에서 미리 실행해 둡니다.
+    function stopUxPrefetch(){if(uxJob){uxJob.ctl.abort();uxJob=null}}
+    function startUxPrefetch(){
+      if(!state.apiKey||!state.records.length||state.ux)return;
+      const key=pipeKey("");if(uxJob&&uxJob.key===key)return;stopUxPrefetch();
+      const ctl=new AbortController();const job={key,ctl,progress:"",report:null,done:false,failed:false};
+      job.promise=runUx("",ctl.signal,(t)=>{job.progress=t;if(job.report)job.report(t)}).then(r=>{job.done=true;return r},e=>{job.failed=true;throw e});
+      job.promise.catch(()=>{});uxJob=job;
+    }
+
     function normRoots(res){
       const list=Array.isArray(res?.rootCauses)?res.rootCauses:[];if(!list.length)throw new Error("5Whys 결과를 생성하지 못했습니다.");
       return list.map((x,i)=>({id:Number(x.id)||i+1,title:String(x.title||`원인 가설 ${i+1}`),evidenceIds:normalizeIds(x.evidenceIds),chain:(Array.isArray(x.chain)?x.chain:[]).slice(0,5).map((s,j)=>({why:String(s.why||`Why ${j+1}`),answer:String(s.answer||""),insight:String(s.insight||"")})),realCause:String(x.realCause||"").trim(),confidence:["높음","중간","낮음"].includes(x.confidence)?x.confidence:"중간"})).filter(x=>x.chain.length&&x.realCause&&x.evidenceIds.length);
@@ -296,7 +641,7 @@ Return ONLY JSON:
       return list.slice(0,3).map((x,i)=>({id:Number(x.id)||i+1,title:String(x.title||`컨셉 ${i+1}`),coreValue:String(x.coreValue||""),concept:String(x.concept||""),userValue:String(x.userValue||""),actions:(Array.isArray(x.actions)?x.actions:[]).map(String).slice(0,5),evidenceIds:normalizeIds(x.evidenceIds)}));
     }
 
-    function snapshot(){const {apiKey,step,isAnalyzing,loadingMsg,errorMsg,evidenceModal,importFileName,importSheetName,importHeaders,importSelectedColumn,...data}=state;return data}
+    function snapshot(){const {apiKey,step,isAnalyzing,loadingMsg,loadingDetail,errorMsg,evidenceModal,importFileName,importSheetName,importHeaders,importSelectedColumn,...data}=state;return data}
     function hasContent(){return state.records.length>0||!!state.rawText.trim()||!!state.overall}
     const PROJECT_ITEM_PATTERNS=[
       ["로봇청소기",/(로봇\s*청소기|robot\s*vacuum)/gi],["냉장고",/(냉장고|refrigerator|fridge|freezer)/gi],["세탁기",/(세탁기|washing\s*machine|\bwasher\b)/gi],["건조기",/(건조기|tumble\s*dryer|heat\s*pump\s*dryer|\bdryer\b|ventless)/gi],["식기세척기",/(식기\s*세척기|dishwasher)/gi],["에어컨",/(에어컨|air\s*conditioner)/gi],["청소기",/(청소기|vacuum\s*cleaner)/gi],["전자레인지",/(전자\s*레인지|microwave)/gi],["오븐",/(오븐|\boven\b)/gi],["스마트폰",/(스마트폰|smartphone|mobile\s*phone)/gi],["태블릿",/(태블릿|\btablet\b)/gi],["노트북",/(노트북|\blaptop\b)/gi],["모니터",/(모니터|\bmonitor\b)/gi],["TV",/(텔레비전|\btelevision\b|\bTV\b)/g],["이어폰",/(이어폰|earbuds?|headphones?)/gi],["스피커",/(스피커|\bspeakers?\b)/gi],["자동차",/(자동차|\bvehicle\b|\bcar\b)/gi]
@@ -356,9 +701,9 @@ Return ONLY JSON:
       </div>`;
     }
 
-    function viewOverall(){const o=state.overall;return `<div class="page-top px-4 dock-space animate-fade-in">${header("전체 Affinity 분석",1)}<h2 class="t-h1 text-slate-900 mb-3">전체 Voice 유사성 기반 Affinity 군집</h2><p class="t-small text-slate-600 mb-7">전체 Voice를 하나도 제외하지 않고, 사전 카테고리 없이 내용과 경험의 유사성만으로 상향식 군집화한 결과입니다.</p><section class="bg-[#052e2b] rounded-[2rem] p-7 text-white shadow-xl mb-7"><span class="inline-block px-3 py-1 bg-emerald-400/15 text-emerald-200 border border-emerald-300/20 rounded-lg t-label mb-4">ALL VOICE AFFINITY SUMMARY</span><p class="t-body text-emerald-50 prose-ko">${esc(o.executiveSummary)}</p></section><div class="space-y-4">${o.categories.map(c=>`<section class="bg-white rounded-[2rem] p-6 border-2 border-slate-200 shadow-md"><div class="flex items-start justify-between gap-3"><h3 class="t-h2 text-slate-900">${esc(c.name)}</h3>${evidenceButton(c.evidenceIds)}</div><p class="t-body text-slate-700 prose-ko mt-4">${esc(c.summary)}</p>${evidenceBlock(c.evidenceIds,2)}</section>`).join("")}</div>${instructionBox("overall-note","Actions.generateOverall(draft('overall-note'))","예: 사전 분류 기준 없이 Voice 간 의미 유사성만으로 다시 군집화해 주세요")}${dock(primaryBtn("UX·제품디자인 Voice 선별 분석","Actions.generateUx()"))}</div>`}
+    function viewOverall(){const o=state.overall;return `<div class="page-top px-4 dock-space animate-fade-in">${header("전체 Affinity 분석",1)}<h2 class="t-h1 text-slate-900 mb-3">전체 Voice 유사성 기반 Affinity 군집</h2><p class="t-small text-slate-600 mb-5">전체 Voice를 하나도 제외하지 않고, 사전 카테고리 없이 내용과 경험의 유사성만으로 상향식 군집화한 결과입니다.</p>${o.quality?`<section class="bg-emerald-50 border-2 border-emerald-200 rounded-3xl p-5 mb-6"><p class="t-label text-emerald-800 mb-1">군집 배정 결과</p><p class="t-h3 text-emerald-950">전체 ${o.quality.total}건 중 ${o.quality.assigned}건 배정 · 군집 ${o.categories.length}개</p>${o.autoAssigned?`<p class="t-small text-emerald-800 mt-1">AI가 끝까지 판단하지 못한 ${o.autoAssigned}건은 가장 비슷한 군집에 자동 배정했습니다.</p>`:""}</section>`:""}<section class="bg-[#052e2b] rounded-[2rem] p-7 text-white shadow-xl mb-7"><span class="inline-block px-3 py-1 bg-emerald-400/15 text-emerald-200 border border-emerald-300/20 rounded-lg t-label mb-4">ALL VOICE AFFINITY SUMMARY</span><p class="t-body text-emerald-50 prose-ko">${esc(o.executiveSummary)}</p></section><div class="space-y-4">${o.categories.map(c=>`<section class="bg-white rounded-[2rem] p-6 border-2 border-slate-200 shadow-md"><div class="flex items-start justify-between gap-3"><h3 class="t-h2 text-slate-900">${esc(c.name)}</h3>${evidenceButton(c.evidenceIds)}</div><p class="t-body text-slate-700 prose-ko mt-4">${esc(c.summary)}</p>${evidenceBlock(c.evidenceIds,2)}</section>`).join("")}</div>${instructionBox("overall-note","Actions.generateOverall(draft('overall-note'))","예: 사전 분류 기준 없이 Voice 간 의미 유사성만으로 다시 군집화해 주세요")}${dock(primaryBtn("UX·제품디자인 Voice 선별 분석","Actions.generateUx()"))}</div>`}
 
-    function viewUx(){const u=state.ux;const selected=new Set((u.issues||[]).flatMap(x=>x.evidenceIds||[])).size;const stats=u.selectionStats||{total:state.records.length,selected,excluded:Math.max(0,state.records.length-selected)};return `<div class="page-top px-4 dock-space animate-fade-in">${header("UX·제품디자인 Affinity",2)}<h2 class="t-h1 text-slate-900 mb-3">UX·제품디자인 관련 Voice 선별 Affinity</h2><p class="t-small text-slate-600 mb-5">1단계 결과와 별개로 전체 원문 Voice를 다시 검토하여 UX디자인·제품디자인과 직접 관련된 Voice만 선별하고, 그 안에서 유사성 기반으로 새롭게 군집화한 결과입니다.</p><section class="bg-emerald-50 border-2 border-emerald-200 rounded-3xl p-5 mb-6"><p class="t-label text-emerald-800 mb-1">독립 Voice 선별 결과</p><p class="t-h3 text-emerald-950">전체 ${stats.total}건 중 관련 Voice ${stats.selected}건 선별</p><p class="t-small text-emerald-800 mt-1">UX·제품디자인 비관련 Voice ${stats.excluded}건은 이 단계의 군집에서 제외했습니다.</p></section><section class="bg-[#052e2b] rounded-[2rem] p-7 text-white shadow-xl mb-7"><span class="inline-block px-3 py-1 bg-emerald-400/15 text-emerald-200 border border-emerald-300/20 rounded-lg t-label mb-4">UX·제품디자인 AFFINITY 종합</span><p class="t-body text-emerald-50 prose-ko">${esc(u.overallSummary)}</p></section><div class="space-y-4">${u.issues.map(x=>{const on=x.id===state.selectedUxId;return `<section class="bg-white rounded-[2rem] p-6 border-2 shadow-md transition-all ${on?"border-emerald-600 ring-2 ring-emerald-600/15":"border-slate-200"}"><div class="flex items-start justify-between gap-3"><h3 class="t-h2 text-slate-900">${esc(x.name)}</h3>${evidenceButton(x.evidenceIds)}</div><p class="t-body text-slate-700 prose-ko mt-3">${esc(x.summary)}</p><div class="mt-4 p-4 rounded-2xl bg-emerald-50 border border-emerald-100"><p class="t-label text-emerald-800 mb-1">디자인 시사점</p><p class="t-small text-emerald-950 prose-ko">${esc(x.designImplication)}</p></div>${evidenceBlock(x.evidenceIds,2)}<button type="button" onclick="Actions.selectUx('${escAttr(x.id)}')" class="w-full mt-5 py-3.5 rounded-xl font-bold ${on?"bg-[#047857] text-white":"bg-[#052e2b] text-white"}">${on?"선택됨":"이 이슈 선택"}</button></section>`}).join("")}</div>${instructionBox("ux-note","Actions.generateUx(draft('ux-note'))","예: UX·제품디자인 관련성 기준을 더 엄격하게 적용해 다시 선별·군집화해 주세요")}${dock(`<p class="t-meta text-slate-600 text-center mb-3">${selectedUx()?`“${esc(selectedUx().name)}” 선택됨`:"이슈를 하나 선택해 주세요"}</p>${primaryBtn("5Whys 근본 원인 분석","Actions.generateRoots()",!selectedUx())}`)}</div>`}
+    function viewUx(){const u=state.ux;const selected=new Set((u.issues||[]).flatMap(x=>x.evidenceIds||[])).size;const stats=u.selectionStats||{total:state.records.length,selected,excluded:Math.max(0,state.records.length-selected)};return `<div class="page-top px-4 dock-space animate-fade-in">${header("UX·제품디자인 Affinity",2)}<h2 class="t-h1 text-slate-900 mb-3">UX·제품디자인 관련 Voice 선별 Affinity</h2><p class="t-small text-slate-600 mb-5">1단계 결과와 별개로 전체 원문 Voice를 다시 검토하여 UX디자인·제품디자인과 직접 관련된 Voice만 선별하고, 그 안에서 유사성 기반으로 새롭게 군집화한 결과입니다.</p><section class="bg-emerald-50 border-2 border-emerald-200 rounded-3xl p-5 mb-6"><p class="t-label text-emerald-800 mb-1">독립 Voice 선별 결과</p><p class="t-h3 text-emerald-950">전체 ${stats.total}건 중 관련 Voice ${stats.selected}건 선별</p><p class="t-small text-emerald-800 mt-1">UX·제품디자인 비관련 Voice ${stats.excluded}건은 이 단계의 군집에서 제외했습니다.</p>${u.autoAssigned?`<p class="t-small text-emerald-800 mt-1">AI가 끝까지 판단하지 못한 ${u.autoAssigned}건은 가장 비슷한 군집에 자동 배정했습니다.</p>`:""}</section><section class="bg-[#052e2b] rounded-[2rem] p-7 text-white shadow-xl mb-7"><span class="inline-block px-3 py-1 bg-emerald-400/15 text-emerald-200 border border-emerald-300/20 rounded-lg t-label mb-4">UX·제품디자인 AFFINITY 종합</span><p class="t-body text-emerald-50 prose-ko">${esc(u.overallSummary)}</p></section><div class="space-y-4">${u.issues.map(x=>{const on=x.id===state.selectedUxId;return `<section class="bg-white rounded-[2rem] p-6 border-2 shadow-md transition-all ${on?"border-emerald-600 ring-2 ring-emerald-600/15":"border-slate-200"}"><div class="flex items-start justify-between gap-3"><h3 class="t-h2 text-slate-900">${esc(x.name)}</h3>${evidenceButton(x.evidenceIds)}</div><p class="t-body text-slate-700 prose-ko mt-3">${esc(x.summary)}</p><div class="mt-4 p-4 rounded-2xl bg-emerald-50 border border-emerald-100"><p class="t-label text-emerald-800 mb-1">디자인 시사점</p><p class="t-small text-emerald-950 prose-ko">${esc(x.designImplication)}</p></div>${evidenceBlock(x.evidenceIds,2)}<button type="button" onclick="Actions.selectUx('${escAttr(x.id)}')" class="w-full mt-5 py-3.5 rounded-xl font-bold ${on?"bg-[#047857] text-white":"bg-[#052e2b] text-white"}">${on?"선택됨":"이 이슈 선택"}</button></section>`}).join("")}</div>${instructionBox("ux-note","Actions.generateUx(draft('ux-note'))","예: UX·제품디자인 관련성 기준을 더 엄격하게 적용해 다시 선별·군집화해 주세요")}${dock(`<p class="t-meta text-slate-600 text-center mb-3">${selectedUx()?`“${esc(selectedUx().name)}” 선택됨`:"이슈를 하나 선택해 주세요"}</p>${primaryBtn("5Whys 근본 원인 분석","Actions.generateRoots()",!selectedUx())}`)}</div>`}
 
     function viewRoots(){return `<div class="page-top px-4 dock-space animate-fade-in">${header("근본 원인 분석",3)}<h2 class="t-h1 text-slate-900 mb-3">VOC 근거 기반 5Whys</h2><p class="t-small text-slate-600 mb-5">관점을 변경하면 근본 원인부터 새로 분석하고 기존 원인 선택·컨셉은 초기화합니다.</p><div class="space-y-5">${state.rootCauses.map(rc=>{const on=rc.id===state.selectedCauseId;return `<section class="bg-white rounded-[2rem] p-6 border-2 shadow-md ${on?"border-emerald-600 ring-2 ring-emerald-600/15":"border-slate-200"}"><div><span class="inline-block px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 font-bold t-meta">Case ${rc.id} · 근거 강도 ${esc(rc.confidence)}</span><h3 class="case-title text-slate-900 mt-3">${esc(rc.title)}</h3></div><div class="mt-5 space-y-4">${rc.chain.map((s,i)=>`<div class="rounded-2xl bg-slate-50 border border-slate-200 p-4"><p class="t-h3 text-slate-900">Why ${i+1}. ${esc(s.why)}</p><p class="t-small text-slate-700 mt-1">→ ${esc(s.answer)}</p><p class="t-meta text-emerald-800 font-bold mt-2">핵심 · ${esc(s.insight)}</p></div>`).join("")}</div><div class="mt-5 pt-5 border-t border-slate-200"><span class="t-label text-emerald-800">ROOT CAUSE HYPOTHESIS</span><p class="t-h3 text-slate-900 mt-2 prose-ko">${esc(rc.realCause)}</p></div><button type="button" onclick="Actions.selectCause(${rc.id})" class="w-full mt-5 py-3.5 rounded-xl font-bold ${on?"bg-[#047857]":"bg-[#052e2b]"} text-white">${on?"선택됨":"이 원인 선택"}</button></section>`}).join("")}</div>${instructionBox("root-note","Actions.generateRoots(null,draft('root-note'))","예: 행동 습관보다 정보 구조의 구조적 원인을 더 깊게 파고들어 주세요")}${dock(`${perspectiveRow()}<p class="t-meta text-slate-600 text-center mb-3">${selectedCause()?`Case ${selectedCause().id} 선택됨`:"근본 원인 하나를 선택해 주세요"}</p>${primaryBtn("디자인 컨셉 방향 도출","Actions.generateConcepts()",!selectedCause())}`)}</div>`}
 
@@ -377,7 +722,7 @@ Return ONLY JSON:
     }
     async function copyText(txt,successMessage="전체 리포트를 복사했습니다."){try{if(navigator.clipboard&&window.isSecureContext)await navigator.clipboard.writeText(txt);else{const ta=document.createElement("textarea");ta.value=txt;ta.style.cssText="position:fixed;top:-1000px";document.body.appendChild(ta);ta.select();document.execCommand("copy");ta.remove()}toast(successMessage,"ok")}catch(e){toast("클립보드 저장에 실패했습니다.","error")}}
     function downloadText(txt,filename){const blob=new Blob([txt],{type:"text/plain;charset=utf-8"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);toast("리포트를 파일로 저장했습니다.","ok")}
-    function overlays(){let h="";if(state.isAnalyzing)h+=`<div class="fixed inset-0 z-[10000] bg-white/95 backdrop-blur-sm flex flex-col items-center justify-center px-8 text-center max-w-[430px] mx-auto"><div class="spinner-ring mb-8"></div><h2 class="t-h2 text-[#052e2b] mb-3">${esc(state.loadingMsg||"AI 분석 중")}</h2><p class="t-small text-slate-600 mb-1">최대 1분 정도 걸릴 수 있습니다</p><p class="t-small text-slate-600 text-center mb-7">처리 중에는 화면을 켜 두고 다른 앱으로 전환하지 마세요</p><button type="button" onclick="Actions.cancel()" class="px-7 py-3.5 rounded-2xl border-2 border-slate-300 text-slate-700 font-bold t-small">취소</button></div>`;if(state.errorMsg)h+=`<div class="fixed inset-0 z-[10002] flex items-center justify-center bg-black/50 px-6 backdrop-blur-sm"><div class="bg-white p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl animate-scale-in"><i data-lucide="alert-triangle" class="text-red-600 mx-auto mb-4 w-12 h-12"></i><h2 class="t-h3 text-slate-900 mb-6">${esc(state.errorMsg)}</h2><button type="button" onclick="setState({errorMsg:null})" class="w-full bg-[#052e2b] text-white py-4 rounded-2xl font-bold">확인</button></div></div>`;if(state.evidenceModal){const ev=evidenceByIds(state.evidenceModal);h+=`<div class="fixed inset-0 z-[9000] flex items-center justify-center bg-black/55 p-5 backdrop-blur-sm"><div class="bg-white rounded-[2rem] w-full max-w-[390px] max-h-[86vh] flex flex-col shadow-2xl"><div class="flex items-center justify-between gap-3 px-6 pt-6 pb-4 border-b"><div class="min-w-0"><p class="t-label text-emerald-800">RAW VOC EVIDENCE</p><h3 class="t-h3 text-slate-900">근거 원문 ${ev.length}건</h3></div><div class="flex items-center gap-1 flex-shrink-0"><button type="button" onclick='Actions.copyEvidence(${JSON.stringify(state.evidenceModal)})' class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#052e2b] text-white font-bold t-meta whitespace-nowrap active:scale-95"><i data-lucide="clipboard-copy" class="w-4 h-4"></i>클립보드 저장</button><button type="button" aria-label="닫기" onclick="setState({evidenceModal:null})" class="p-2 rounded-full hover:bg-slate-100"><i data-lucide="x" class="w-6 h-6"></i></button></div></div><div class="overflow-y-auto p-5 space-y-3 no-scrollbar">${ev.map(r=>`<div class="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl"><span class="t-meta font-bold text-emerald-800">${r.id}</span><p class="t-small text-slate-800 mt-1">${esc(r.text)}</p></div>`).join("")}</div></div></div>`}return h}
+    function overlays(){let h="";if(state.isAnalyzing)h+=`<div class="fixed inset-0 z-[10000] bg-white/95 backdrop-blur-sm flex flex-col items-center justify-center px-8 text-center max-w-[430px] mx-auto"><div class="spinner-ring mb-8"></div><h2 class="t-h2 text-[#052e2b] mb-3">${esc(state.loadingMsg||"AI 분석 중")}</h2><p id="loading-detail" aria-live="polite" class="t-small font-bold text-emerald-800 mb-2 min-h-[1.5em]">${esc(state.loadingDetail||"")}</p><p class="t-small text-slate-600 mb-1">최대 1분 정도 걸릴 수 있습니다</p><p class="t-small text-slate-600 text-center mb-7">처리 중에는 화면을 켜 두고 다른 앱으로 전환하지 마세요</p><button type="button" onclick="Actions.cancel()" class="px-7 py-3.5 rounded-2xl border-2 border-slate-300 text-slate-700 font-bold t-small">취소</button></div>`;if(state.errorMsg)h+=`<div class="fixed inset-0 z-[10002] flex items-center justify-center bg-black/50 px-6 backdrop-blur-sm"><div class="bg-white p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl animate-scale-in"><i data-lucide="alert-triangle" class="text-red-600 mx-auto mb-4 w-12 h-12"></i><h2 class="t-h3 text-slate-900 mb-6">${esc(state.errorMsg)}</h2><button type="button" onclick="setState({errorMsg:null})" class="w-full bg-[#052e2b] text-white py-4 rounded-2xl font-bold">확인</button></div></div>`;if(state.evidenceModal){const ev=evidenceByIds(state.evidenceModal);h+=`<div class="fixed inset-0 z-[9000] flex items-center justify-center bg-black/55 p-5 backdrop-blur-sm"><div class="bg-white rounded-[2rem] w-full max-w-[390px] max-h-[86vh] flex flex-col shadow-2xl"><div class="flex items-center justify-between gap-3 px-6 pt-6 pb-4 border-b"><div class="min-w-0"><p class="t-label text-emerald-800">RAW VOC EVIDENCE</p><h3 class="t-h3 text-slate-900">근거 원문 ${ev.length}건</h3></div><div class="flex items-center gap-1 flex-shrink-0"><button type="button" onclick='Actions.copyEvidence(${JSON.stringify(state.evidenceModal)})' class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#052e2b] text-white font-bold t-meta whitespace-nowrap active:scale-95"><i data-lucide="clipboard-copy" class="w-4 h-4"></i>클립보드 저장</button><button type="button" aria-label="닫기" onclick="setState({evidenceModal:null})" class="p-2 rounded-full hover:bg-slate-100"><i data-lucide="x" class="w-6 h-6"></i></button></div></div><div class="overflow-y-auto p-5 space-y-3 no-scrollbar">${ev.map(r=>`<div class="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl"><span class="t-meta font-bold text-emerald-800">${r.id}</span><p class="t-small text-slate-800 mt-1">${esc(r.text)}</p></div>`).join("")}</div></div></div>`}return h}
 
     function captureUI(){const el=document.activeElement;const f=(el&&el.id&&(el.tagName==="INPUT"||el.tagName==="TEXTAREA"||el.tagName==="SELECT"))?{id:el.id,start:el.selectionStart,end:el.selectionEnd}:null;return{focus:f,scrollY:window.scrollY}}
     function restoreUI(s,reset){if(s.focus){const el=document.getElementById(s.focus.id);if(el){el.focus({preventScroll:true});try{el.setSelectionRange(s.focus.start,s.focus.end)}catch(e){}}}window.scrollTo(0,reset?0:s.scrollY)}
@@ -441,11 +786,11 @@ Return ONLY JSON:
 
     const Actions={
       cancel(){if(activeController)activeController.abort()},
-      async validateKey(){const input=document.getElementById("api-input");const key=(input?.value.trim())||state.apiKey;if(!key){setState({errorMsg:"API 키를 입력해 주세요."});return}setState({apiKey:key});const ok=await withLoading("키를 확인하는 중",()=>callGemini('Return only JSON: {"status":"OK"}'));if(ok){sessionStorage.setItem(CONFIG.SESSION_KEY_API,key);setState({step:0})}else{sessionStorage.removeItem(CONFIG.SESSION_KEY_API);setState({apiKey:""})}},
+      async validateKey(){const input=document.getElementById("api-input");const key=(input?.value.trim())||state.apiKey;if(!key){setState({errorMsg:"API 키를 입력해 주세요."});return}setState({apiKey:key});const ok=await withLoading("키를 확인하는 중",(signal)=>callGemini('Return only JSON: {"status":"OK"}',{thinking:"low",timeoutMs:45000,signal}));if(ok){sessionStorage.setItem(CONFIG.SESSION_KEY_API,key);setState({step:0})}else{sessionStorage.removeItem(CONFIG.SESSION_KEY_API);setState({apiKey:""})}},
       resetApi(){persist(false);sessionStorage.removeItem(CONFIG.SESSION_KEY_API);setState({apiKey:"",step:-1})},
       goHome(){persist(false);setState({step:0})},
-      startNewProject(){Object.keys(drafts).forEach(k=>delete drafts[k]);lastSaved="";setState({...blankProject(),step:1,errorMsg:null})},
-      openProject(id){const p=Store.list().find(x=>x.id===id);if(!p){toast("프로젝트를 찾을 수 없습니다.","error");return}Object.keys(drafts).forEach(k=>delete drafts[k]);const d={...blankProject(),...p.data,projectId:p.id};lastSaved=JSON.stringify(p.data);setState({...d,step:lastCompleted(d)})},
+      startNewProject(){stopUxPrefetch();Object.keys(drafts).forEach(k=>delete drafts[k]);lastSaved="";setState({...blankProject(),step:1,errorMsg:null})},
+      openProject(id){const p=Store.list().find(x=>x.id===id);if(!p){toast("프로젝트를 찾을 수 없습니다.","error");return}Object.keys(drafts).forEach(k=>delete drafts[k]);const d={...blankProject(),...p.data,projectId:p.id};stopUxPrefetch();lastSaved=JSON.stringify(p.data);setState({...d,step:lastCompleted(d)});if(d.overall&&!d.ux)startUxPrefetch()},
       deleteProject(id){if(!confirm("이 프로젝트를 삭제하시겠습니까?"))return;Store.remove(id);if(state.projectId===id)lastSaved="";render(false)},
       saveNow(){const r=persist(true);if(r==="ok")toast("진행 상태를 저장했습니다.","ok");else if(r==="skip")toast("저장할 분석 내용이 아직 없습니다.","info")},
       goNext(){const n=state.step+1;if(stepReady(n))setState({step:n});else toast("다음 단계 결과를 먼저 생성해 주세요.","info")},
@@ -455,8 +800,12 @@ Return ONLY JSON:
       onRawInput(v){if(v!==state.rawText){state.rawText=v;state.records=[];state.sourceCount=0;state.sourceType="text";state.sourceLabel="직접 입력";invalidateFromData();window.__state=state}},
       applyRawText(){const v=document.getElementById("raw-input")?.value??state.rawText;const parsed=parseTextRecords(v);if(!parsed.records.length){setState({errorMsg:"분석할 VOC를 입력해 주세요."});return}state.rawText=v;invalidateFromData();setState({records:parsed.records,sourceCount:parsed.sourceCount,sourceType:"text",sourceLabel:"직접 입력",overall:null,ux:null,rootCauses:[],concepts:[]});toast(`${parsed.records.length}건의 VOC를 준비했습니다.`,"ok")},
       async uploadFile(e){const f=e.target.files?.[0];if(!f)return;if(f.size>CONFIG.MAX_FILE_BYTES){setState({errorMsg:"파일이 25MB를 초과합니다."});return}try{const ext=(f.name.split(".").pop()||"").toLowerCase();if(ext==="txt"){const text=await f.text();state.rawText=text;const parsed=parseTextRecords(text);invalidateFromData();setState({records:parsed.records,sourceCount:parsed.sourceCount,sourceType:"file",sourceLabel:f.name,importFileName:f.name,importSheetName:"",importHeaders:[],importSelectedColumn:"",overall:null,ux:null,rootCauses:[],concepts:[]});toast(`${parsed.records.length}건의 VOC를 준비했습니다.`,"ok");return}if(!["xlsx","xls","csv"].includes(ext))throw new Error("XLSX, XLS, CSV, TXT 파일만 지원합니다.");const wb=ext==="csv"?XLSX.read(await f.text(),{type:"string",codepage:65001}):XLSX.read(await f.arrayBuffer(),{type:"array"});if(!wb.SheetNames.length)throw new Error("Sheet를 찾지 못했습니다.");const detected=detectVocSource(wb);invalidateFromData();setState({rawText:"",records:detected.made.records,sourceCount:detected.made.sourceCount,sourceType:"file",sourceLabel:f.name,importFileName:f.name,importSheetName:detected.sheetName,importHeaders:[],importSelectedColumn:detected.column,overall:null,ux:null,rootCauses:[],concepts:[]});toast(`${detected.made.records.length}건의 VOC를 자동으로 준비했습니다.`,"ok")}catch(err){setState({errorMsg:err.message||"파일을 처리하지 못했습니다."})}finally{e.target.value=""}},
-      async generateOverall(note){if(!state.records.length)return;const res=await withLoading("전체 VOC Affinity 분석 중",()=>callGemini(PROMPTS.OVERALL(state.records,note)));if(!res)return;try{const overall=normOverall(res);invalidateFromOverall();clearDrafts("overall-note");setState({overall,step:2,ux:null,rootCauses:[],concepts:[]})}catch(e){setState({errorMsg:e.message})}},
-      async generateUx(note){if(!state.records.length)return;const prompt=PROMPTS.UX(state.records,note);const res=await withLoading("전체 Voice에서 UX·제품디자인 관련 Voice를 분석하는 중",()=>callKoreanJson(prompt,uxNeedsKorean));if(!res)return;try{const ux=normUx(res);invalidateFromUx();clearDrafts("ux-note");setState({ux,step:3,selectedUxId:null,rootCauses:[],concepts:[]})}catch(e){setState({errorMsg:e.message})}},
+      async generateOverall(note){if(!state.records.length)return;const n=String(note||"").trim();const res=await withLoading("전체 VOC Affinity 분석 중",(signal,report)=>runOverall(n,signal,report));if(!res)return;invalidateFromOverall();clearDrafts("overall-note");setState({overall:res,step:2,ux:null,rootCauses:[],concepts:[]});startUxPrefetch()},
+      async generateUx(note){if(!state.records.length)return;const n=String(note||"").trim();const key=pipeKey(n);const job=(!n&&uxJob&&uxJob.key===key)?uxJob:null;
+        const res=await withLoading("전체 Voice에서 UX·제품디자인 관련 Voice를 분석하는 중",async(signal,report)=>{
+          if(job){try{job.report=report;if(job.progress)report(job.progress);signal.addEventListener("abort",()=>job.ctl.abort(),{once:true});return await job.promise}catch(e){if(signal.aborted)throw abortErr()}finally{job.report=null;if(uxJob===job)uxJob=null}}
+          return runUx(n,signal,report)});
+        if(!res)return;invalidateFromUx();clearDrafts("ux-note");setState({ux:res,step:3,selectedUxId:null,rootCauses:[],concepts:[]})},
       selectUx(id){if(id!==state.selectedUxId){invalidateFromUx();setState({selectedUxId:id,rootCauses:[],concepts:[]})}},
       async generateRoots(perspective,note){const issue=selectedUx();if(!issue)return;const p=perspective||state.perspective;const evidence=evidenceByIds(issue.evidenceIds);const res=await withLoading(`${p}에서 근본 원인을 분석하는 중`,()=>callGemini(PROMPTS.ROOT(issue,evidence,p,note)));if(!res)return;try{const roots=normRoots(res);invalidateFromRoot();clearDrafts("root-note");setState({perspective:p,rootCauses:roots,selectedCauseId:null,concepts:[],step:4})}catch(e){setState({errorMsg:e.message})}},
       changePerspective(p){if(p===state.perspective)return;const issue=selectedUx();if(!issue){setState({perspective:p});return}Actions.generateRoots(p)},
